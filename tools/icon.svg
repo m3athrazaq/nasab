@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#231C17"/>
+  <g id="art">
+    <path d="M256 186v56M150 292v-22q0-22 22-22h168q22 0 22 22v22M256 248v44" fill="none" stroke="#F1EADC" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="203" y="88" width="106" height="106" rx="28" fill="#C8392F"/>
+    <rect x="106" y="292" width="88" height="88" rx="23" fill="none" stroke="#F1EADC" stroke-width="16"/>
+    <circle cx="256" cy="336" r="44" fill="none" stroke="#E7B44A" stroke-width="16"/>
+    <rect x="318" y="292" width="88" height="88" rx="23" fill="none" stroke="#F1EADC" stroke-width="16"/>
+    <path d="M96 418h320v28H96z" fill="#C8392F"/>
+    <path d="M96 412h320M96 452h320" stroke="#F1EADC" stroke-width="4"/>
+    <path d="M116 422l10 10-10 10-10-10zM156 422l10 10-10 10-10-10zM196 422l10 10-10 10-10-10zM236 422l10 10-10 10-10-10zM276 422l10 10-10 10-10-10zM316 422l10 10-10 10-10-10zM356 422l10 10-10 10-10-10zM396 422l10 10-10 10-10-10z" fill="#F1EADC"/>
+    <path d="M116 427l5 5-5 5-5-5zM156 427l5 5-5 5-5-5zM196 427l5 5-5 5-5-5zM236 427l5 5-5 5-5-5zM276 427l5 5-5 5-5-5zM316 427l5 5-5 5-5-5zM356 427l5 5-5 5-5-5zM396 427l5 5-5 5-5-5z" fill="#231C17"/>
+  </g>
+</svg>

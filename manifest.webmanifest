@@ -1,0 +1,20 @@
+{
+  "name": "نَسَب — شجرة العائلة",
+  "short_name": "نَسَب",
+  "description": "اكتب شجرة عائلتك واعرضها بأشكال عصرية، وأخرجها لوحة PDF أو كتاباً أو صورة أو ملفاً تفاعلياً.",
+  "lang": "ar",
+  "dir": "rtl",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#231C17",
+  "theme_color": "#EEF0EC",
+  "categories": ["lifestyle", "education", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
