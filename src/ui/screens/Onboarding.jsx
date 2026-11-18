@@ -1,14 +1,17 @@
 // First start: what the app is, then "who are you?" — a full name typed once becomes you and your
 // fathers, linked, so the tree has its trunk in a few seconds. Or import a file, or try a sample family.
+// The same screens start a second family (family: true): from someone's full name, from the earliest
+// grandfather, from a file, or the sample.
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { state, replaceState } from '../../core/store.js';
-import { buildChain, setSettings, addPerson, setRoot, setMe } from '../../core/actions.js';
+import { buildChain, setSettings, addPerson, setRoot, setMe, addFamily } from '../../core/actions.js';
 import { t, lang } from '../../core/i18n.js';
 import { parseChain, guessGender, cleanName } from '../../core/names.js';
 import { demoState } from '../../core/demo.js';
-import { go } from '../router.js';
+import { go, pushOverlay } from '../router.js';
+import { newFamily } from '../app-state.js';
 import { Icon } from '../icons.jsx';
-import { Seg } from '../kit.jsx';
+import { Seg, toast } from '../kit.jsx';
 import { pickAndRestore } from './Export.jsx';
 
 function Mark() {
@@ -38,11 +41,13 @@ function Mark() {
   );
 }
 
-export function Onboarding() {
+export function Onboarding({ family = false }) {
   const [step, setStep] = useState(0);
   const ar = lang.value === 'ar';
-  if (step === 1) return <WhoAreYou onBack={() => setStep(0)} onFounder={() => setStep(2)} />;
-  if (step === 2) return <Founder onBack={() => setStep(0)} />;
+  useEffect(() => (family ? pushOverlay(() => { newFamily.value = false; }) : undefined), [family]);
+  if (step === 1) return <WhoAreYou family={family} onBack={() => setStep(0)} onFounder={() => setStep(2)} />;
+  if (step === 2) return <Founder family={family} onBack={() => setStep(0)} />;
+  if (family) return <NewFamilyStart onWho={() => setStep(1)} onFounder={() => setStep(2)} />;
   return (
     <div class="onb"><div class="wrap" style="display:flex;flex-direction:column;flex:1;width:100%">
       <div style="display:flex;justify-content:flex-end"><button class="linkbtn" onClick={() => setSettings({ lang: ar ? 'en' : 'ar' })}>{ar ? 'English' : 'العربية'}</button></div>
@@ -62,7 +67,34 @@ export function Onboarding() {
   );
 }
 
-function WhoAreYou({ onBack, onFounder }) {
+/** a new family: how to begin it */
+function NewFamilyStart({ onWho, onFounder }) {
+  const cancel = () => { newFamily.value = false; };
+  const sample = () => {
+    if (!addFamily({ raw: demoState(), name: t('demo_family') })) { toast(t('e_families_full')); return; }
+    newFamily.value = false; go('tree', true); toast(t('demo_opened'), { ms: 5000 });
+  };
+  const opt = (icon, title, sub, onClick) => (
+    <button class="row" onClick={onClick}><span class="famdot"><Icon name={icon} /></span><span class="grow"><span class="title">{title}</span><span class="meta wrap2">{sub}</span></span><Icon name="chevron" class="chev" /></button>
+  );
+  return (
+    <div class="onb"><div class="wrap" style="display:flex;flex-direction:column;flex:1;width:100%">
+      <button class="iconbtn" onClick={cancel} aria-label={t('cancel')}><Icon name="x" /></button>
+      <div class="body" style="justify-content:flex-start;margin-top:12px">
+        <h2>{t('family_new')}</h2>
+        <p class="muted" style="margin:6px 0 16px">{t('nf_p')}</p>
+        <div class="list">
+          {opt('userPlus', t('nf_name'), t('nf_name_sub'), onWho)}
+          {opt('crown', t('nf_founder'), t('nf_founder_sub'), onFounder)}
+          {opt('upload', t('nf_file'), t('nf_file_sub'), () => { newFamily.value = false; pickAndRestore({ asNew: true }); })}
+          {opt('tree', t('nf_sample'), t('nf_sample_sub'), sample)}
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
+function WhoAreYou({ onBack, onFounder, family = false }) {
   const [name, setName] = useState('');
   const [g, setG] = useState('m');
   const [gSet, setGSet] = useState(false);
@@ -75,17 +107,22 @@ function WhoAreYou({ onBack, onFounder }) {
   const ok = chain.names.length >= 1;
   const start = () => {
     if (!ok) return;
-    buildChain(chain.names, { family: famShown, gender: g });
+    if (family) {
+      // the new family's first person is one of its members, not the user (he can say "this is me" later)
+      if (!addFamily()) { toast(t('e_families_full')); return; }
+      buildChain(chain.names, { family: famShown, gender: g, me: false });
+      newFamily.value = false;
+    } else buildChain(chain.names, { family: famShown, gender: g });
     go('tree', true);
   };
   return (
     <div class="onb"><div class="wrap" style="display:flex;flex-direction:column;flex:1;width:100%">
       <button class="iconbtn" onClick={onBack} aria-label={t('back')}><Icon name="back" class="flip" /></button>
       <div class="body" style="justify-content:flex-start;margin-top:12px">
-        <h2>{t('ob_who')}</h2>
-        <p class="muted" style="margin:6px 0 0">{t('ob_who_p')}</p>
+        <h2>{family ? t('nf_who') : t('ob_who')}</h2>
+        <p class="muted" style="margin:6px 0 0">{family ? t('nf_who_p') : t('ob_who_p')}</p>
         <label class="field">
-          <span class="lab">{t('ob_fullname')}</span>
+          <span class="lab">{family ? t('nf_fullname') : t('ob_fullname')}</span>
           <input class="input nm" ref={inp} value={name} placeholder={t('ob_fullname_ph')} onInput={e => { const v = e.currentTarget.value; setName(v); if (!gSet) setG(guessGender(parseChain(v).names[0] || '') || 'm'); }} onKeyDown={e => { if (e.key === 'Enter') start(); }} />
         </label>
         {chain.names.length > 0 && (
@@ -107,7 +144,7 @@ function WhoAreYou({ onBack, onFounder }) {
         </label>
       </div>
       <div class="foot">
-        <button class="btn wide" disabled={!ok} onClick={start}><Icon name="check" />{t('ob_go')}</button>
+        <button class="btn wide" disabled={!ok} onClick={start}><Icon name="check" />{family ? t('nf_go') : t('ob_go')}</button>
         <button class="linkbtn" onClick={onFounder}>{t('ob_founder')}</button>
       </div>
     </div></div>
@@ -115,12 +152,16 @@ function WhoAreYou({ onBack, onFounder }) {
 }
 
 /** starting from the earliest known grandfather instead of oneself */
-function Founder({ onBack }) {
+function Founder({ onBack, family = false }) {
   const [n, setN] = useState('');
   const [fam, setFam] = useState('');
   const go2 = () => {
     const name = cleanName(n);
     if (!name) return;
+    if (family) {
+      if (!addFamily()) { toast(t('e_families_full')); return; }
+      newFamily.value = false;
+    }
     const id = addPerson({ n: name, g: 'm', fam });
     setRoot(id);
     setSettings({ onboarded: true });
@@ -135,7 +176,7 @@ function Founder({ onBack }) {
         <label class="field"><span class="lab">{t('name')}</span><input class="input nm" value={n} onInput={e => setN(e.currentTarget.value)} /></label>
         <label class="field"><span class="lab">{t('ob_family')}</span><input class="input" value={fam} onInput={e => setFam(e.currentTarget.value)} placeholder={t('family_ph')} /></label>
       </div>
-      <div class="foot"><button class="btn wide" disabled={!cleanName(n)} onClick={go2}><Icon name="check" />{t('ob_go')}</button></div>
+      <div class="foot"><button class="btn wide" disabled={!cleanName(n)} onClick={go2}><Icon name="check" />{family ? t('nf_go') : t('ob_go')}</button></div>
     </div></div>
   );
 }

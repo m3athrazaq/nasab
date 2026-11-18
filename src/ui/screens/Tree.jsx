@@ -7,7 +7,7 @@ import { select } from 'd3-selection';
 import { zoom, zoomIdentity } from 'd3-zoom';
 import { interpolateZoom } from 'd3-interpolate';
 import { state } from '../../core/store.js';
-import { setView, setRoot, toggleCollapsed } from '../../core/actions.js';
+import { setView, setRoot, setSettings, toggleCollapsed } from '../../core/actions.js';
 import { t, num, count, lang } from '../../core/i18n.js';
 import { familyTitle } from '../../core/names.js';
 import { generations } from '../../core/model.js';
@@ -15,7 +15,7 @@ import { layoutDescendants, layoutFan } from '../../chart/layout.js';
 import { drawDescendants, drawFan, threadKeys } from '../../chart/draw.js';
 import { cssFont } from '../../chart/themes.js';
 import { makeInfo } from '../../chart/info.js';
-import { IX, ROOT, screenTheme, personSheet, openPerson, openAdd, viewSheet, focusRequest, pickPerson, focusOn } from '../app-state.js';
+import { IX, ROOT, screenTheme, personSheet, openPerson, openAdd, viewSheet, focusRequest, pickPerson, focusOn, familiesSheet } from '../app-state.js';
 import { go, route } from '../router.js';
 import { Icon } from '../icons.jsx';
 import { Sheet, Toggle, Seg, PersonRow } from '../kit.jsx';
@@ -44,6 +44,8 @@ if (typeof document !== 'undefined' && document.fonts) {
 }
 
 export const fanPerson = signal(null);
+/** the sheet that chooses where the tree starts (opened from the families sheet too) */
+export const rootSheet = signal(false);
 const photoUrls = signal(new Map());
 let photoKey = '';
 function loadPhotoUrls(ix) {
@@ -71,19 +73,19 @@ function TreeCanvas() {
       const known = Math.max(0, ...ix.ancestors(fp, 8).values());
       return layoutFan(ix, fp, { gens: Math.min(6, Math.max(3, known + 1)), rtl });
     }
-    return layoutDescendants(ix, root, { mode: v.mode, dKids: v.dKids, spouses: v.spouses, dates: v.dates, rtl, collapsed: new Set(v.collapsed) });
-  }, [ix, root, v.mode, v.dKids, v.spouses, v.dates, collapsed, rtl, fp, fontsReady.value]);
+    return layoutDescendants(ix, root, { mode: v.mode, dKids: v.dKids, women: v.women, spouses: v.spouses && v.women, dates: v.dates, rtl, collapsed: new Set(v.collapsed) });
+  }, [ix, root, v.mode, v.dKids, v.women, v.spouses, v.dates, collapsed, rtl, fp, fontsReady.value]);
   const info = useMemo(() => makeInfo(ix, s, {}), [ix, s.settings, lang.value]);
   const thread = useMemo(() => (L && sel && v.mode !== 'f' ? threadKeys(L, sel) : new Set()), [L, sel, v.mode]);
   const scene = useMemo(() => {
     if (!L) return null;
     const o = {
-      info, measure: measureScreen, photos: v.photos, dates: v.dates, spouses: v.spouses, colors: v.colors, bands: v.bands,
+      info, measure: measureScreen, photos: v.photos, dates: v.dates, spouses: v.spouses && v.women, colors: v.colors, bands: v.bands,
       genLabel: n => t('gen_n', { n: num(n) }), me: s.me, selected: sel, thread, screen: true, num: n => num(n),
       motherLabel: u => { const w = ix.U[u] && ix.U[u].w; return w && ix.P[w] ? t('from_mother', { name: ix.P[w].n }) : ''; }
     };
     return v.mode === 'f' ? drawFan(L, th, o) : drawDescendants(L, th, o);
-  }, [L, th, v.photos, v.dates, v.spouses, v.colors, v.bands, sel, thread, s.me, info, fontsReady.value]);
+  }, [L, th, v.photos, v.dates, v.spouses, v.women, v.colors, v.bands, sel, thread, s.me, info, fontsReady.value]);
 
   /* pan & zoom */
   useEffect(() => {
@@ -186,17 +188,18 @@ function TreeCanvas() {
 }
 
 const MODES = [['v', 'vtree', 'mode_v'], ['h', 'htree', 'mode_h'], ['r', 'canopy', 'mode_r'], ['f', 'fan', 'mode_f']];
+export const KIDS_ORDER = ['old', 'young', 'manual'];
 
 export function TreeScreen() {
   const s = state.value, ix = IX.value, root = ROOT.value;
-  const [rootSheet, setRootSheet] = useState(false);
-  const gens = useMemo(() => generations(ix, root, { daughtersKids: s.view.dKids }), [ix, root, s.view.dKids]);
+  const gens = useMemo(() => generations(ix, root, { daughtersKids: s.view.dKids, women: s.view.women }), [ix, root, s.view.dKids, s.view.women]);
   if (!root) {
     return (
       <div class="screen"><div class="wrap" style="padding-top:80px;text-align:center">
         <h2 style="font-family:var(--ruqaa);font-size:32px;margin:0">{t('tree_empty_t')}</h2>
         <p class="muted">{t('tree_empty_p')}</p>
         <button class="btn" onClick={() => openAdd('person')}><Icon name="userPlus" />{t('add_first')}</button>
+        {Object.keys(s.others).length > 0 && <div style="margin-top:12px"><button class="btn ghost" onClick={() => { familiesSheet.value = true; }}><Icon name="tree" />{t('families')}</button></div>}
       </div></div>
     );
   }
@@ -210,7 +213,7 @@ export function TreeScreen() {
     <>
       <TreeCanvas />
       <div class="tree-top">
-        <button class="tree-title" onClick={() => setRootSheet(true)} aria-label={t('choose_root')}>
+        <button class="tree-title" onClick={() => { familiesSheet.value = true; }} aria-label={t('families_open')}>
           <b>{title}</b>
           <span>{sub}<Icon name="caret" /></span>
         </button>
@@ -229,7 +232,7 @@ export function TreeScreen() {
           <button key={m} aria-pressed={s.view.mode === m ? 'true' : 'false'} onClick={() => setView({ mode: m })} aria-label={t(label)} title={t(label)}><Icon name={icon} /></button>
         ))}
       </div>
-      {rootSheet && <RootSheet onClose={() => setRootSheet(false)} />}
+      {rootSheet.value && <RootSheet onClose={() => { rootSheet.value = false; }} />}
     </>
   );
 }
@@ -254,7 +257,7 @@ function RootSheet({ onClose }) {
 /** what the tree shows */
 export function ViewSheet() {
   if (!viewSheet.value) return null;
-  const v = state.value.view;
+  const v = state.value.view, st = state.value.settings;
   const close = () => { viewSheet.value = false; };
   const collapsedAny = v.collapsed.length > 0;
   return (
@@ -264,11 +267,14 @@ export function ViewSheet() {
       <div class="list" style="box-shadow:none;margin-top:12px;background:var(--paper-2)">
         <Toggle checked={v.photos} onChange={x => setView({ photos: x })} label={t('opt_photos')} />
         <Toggle checked={v.dates} onChange={x => setView({ dates: x })} label={t('opt_dates')} />
-        <Toggle checked={v.spouses} onChange={x => setView({ spouses: x })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />
-        <Toggle checked={v.dKids} onChange={x => setView({ dKids: x })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />
+        <Toggle checked={v.women} onChange={x => setView({ women: x })} label={t('opt_women')} sub={t('opt_women_sub')} />
+        {v.women && <Toggle checked={v.spouses} onChange={x => setView({ spouses: x })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
+        {v.women && <Toggle checked={v.dKids} onChange={x => setView({ dKids: x })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
         <Toggle checked={v.colors} onChange={x => setView({ colors: x })} label={t('opt_colors')} />
         <Toggle checked={v.bands} onChange={x => setView({ bands: x })} label={t('opt_bands')} />
       </div>
+      <div class="field" style="margin-top:14px"><span class="lab">{t('kids_order')}</span><Seg value={st.kidsOrder} onChange={x => setSettings({ kidsOrder: x })} options={KIDS_ORDER.map(k => [k, t('kids_' + k)])} label={t('kids_order')} /></div>
+      <p class="hint">{t('kids_order_hint')}</p>
       {collapsedAny && <button class="btn ghost wide" style="margin-top:12px" onClick={() => setView({ collapsed: [] })}>{t('expand_all')}</button>}
     </Sheet>
   );

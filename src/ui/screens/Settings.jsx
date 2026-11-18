@@ -2,16 +2,18 @@
 // family, and about the app.
 import { useState } from 'preact/hooks';
 import { state, replaceState, update, clearUndo, defaultState } from '../../core/store.js';
-import { setSettings, setMe } from '../../core/actions.js';
-import { t, lang, dig, digits, calPref } from '../../core/i18n.js';
+import { setSettings, setMe, addFamily } from '../../core/actions.js';
+import { t, lang, dig, digits, calPref, count } from '../../core/i18n.js';
 import { fmtD } from '../../core/dates.js';
-import { IX, pickPerson } from '../app-state.js';
+import { IX, pickPerson, familiesSheet } from '../app-state.js';
 import { go } from '../router.js';
 import { Icon } from '../icons.jsx';
 import { TopBar, Seg, Toggle, PersonRow, confirmDialog, toast, Sheet } from '../kit.jsx';
 import { demoState } from '../../core/demo.js';
 import { lineageText } from '../../core/names.js';
 import { setPin } from './Lock.jsx';
+import { KIDS_ORDER } from './Tree.jsx';
+import { familyLabel } from './Families.jsx';
 
 /** a date written the way the settings now write it, with the other calendar in brackets */
 function bothExample() {
@@ -28,6 +30,12 @@ export function SettingsScreen() {
       <TopBar back title={t('settings')} />
       <div class="wrap">
         <div class="section" style="margin-top:6px">
+          <h2>{t('families')}</h2>
+          <div class="list">
+            <button class="row" onClick={() => { familiesSheet.value = true; }}><Icon name="tree" class="chev" /><span class="grow"><span class="title">{familyLabel(s)}</span><span class="meta">{t('families_sub', { n: count(Object.keys(s.others).length + 1, 'family') })}</span></span><Icon name="chevron" class="chev" /></button>
+          </div>
+        </div>
+        <div class="section">
           <h2>{t('s_language')}</h2>
           <Seg value={st.lang} onChange={v => setSettings({ lang: v })} options={[['ar', 'العربية'], ['en', 'English']]} label={t('s_language')} />
         </div>
@@ -53,6 +61,11 @@ export function SettingsScreen() {
           {st.lang === 'ar' && <div class="list" style="margin-top:10px"><Toggle checked={st.mercy} onChange={v => setSettings({ mercy: v })} label={t('s_mercy')} sub={t('s_mercy_sub')} /></div>}
         </div>
         <div class="section">
+          <h2>{t('kids_order')}</h2>
+          <Seg value={st.kidsOrder} onChange={v => setSettings({ kidsOrder: v })} options={KIDS_ORDER.map(k => [k, t('kids_' + k)])} label={t('kids_order')} />
+          <p class="hint">{t('kids_order_hint')}</p>
+        </div>
+        <div class="section">
           <h2>{t('s_me')}</h2>
           <div class="list">
             {s.me && ix.P[s.me]
@@ -70,10 +83,11 @@ export function SettingsScreen() {
           <div class="list">
             <button class="row" onClick={() => go('about')}><Icon name="info" class="chev" /><span class="grow"><span class="title">{t('about')}</span></span><Icon name="chevron" class="chev" /></button>
             <button class="row" onClick={async () => {
-              const has = Object.keys(s.people).length > 0;
-              const ok = await confirmDialog({ title: t('demo_q'), text: has ? t('demo_p_has') : t('demo_p'), ok: t('demo_load'), danger: has });
-              if (!ok) return;
-              replaceState({ ...demoState(), settings: s.settings, view: s.view });
+              // the sample opens as a family of its own; nothing of yours is replaced
+              const empty = !Object.keys(s.people).length;
+              if (empty) replaceState({ ...demoState(), settings: s.settings, view: s.view });
+              else if (!addFamily({ raw: demoState(), name: t('demo_family') })) { toast(t('e_families_full')); return; }
+              toast(empty ? t('demo_loaded') : t('demo_opened'), { ms: 5000 });
               go('tree');
             }}><Icon name="tree" class="chev" /><span class="grow"><span class="title">{t('demo_try')}</span><span class="meta">{t('demo_sub')}</span></span></button>
             <button class="row" onClick={async () => {

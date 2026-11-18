@@ -13,6 +13,7 @@ import { TopBar, Seal, PersonRow, Empty, Sheet, confirmDialog, toast, DateInput,
 import { nameOf, lineTail, yearsOf, relToMe } from '../people.js';
 import { deletePhoto } from '../../core/photos.js';
 import { fanPerson } from './Tree.jsx';
+import { askDelete } from './Sheets.jsx';
 import { undo } from '../../core/store.js';
 
 export function PersonPage({ id }) {
@@ -91,7 +92,7 @@ export function PersonPage({ id }) {
                 {other ? <PersonRow id={other} meta={[p.g === 'f' ? t('husband') : t('wife') + (unions.length > 1 ? ' ' + ordinal(ui + 1, 'f') : ''), md.main ? t('married_on', { d: md.main }) : '', U.st === 'd' ? t('divorced') : ''].filter(Boolean).join(' — ')} onClick={() => go('person/' + other)} />
                   : <div class="union-h">{p.g === 'f' ? t('father_unknown') : t('mother_unknown')}</div>}
                 {kids.length > 0 && <div class="union-h"><span style="flex:1">{t('their_children', { n: count(kids.length, 'child') })}</span>
-                  {kids.length > 1 && <button class="linkbtn small" onClick={() => setOrder(order === u ? '' : u)}>{order === u ? t('done') : t('reorder')}</button>}
+                  {kids.length > 1 && s.settings.kidsOrder === 'manual' && <button class="linkbtn small" onClick={() => setOrder(order === u ? '' : u)}>{order === u ? t('done') : t('reorder')}</button>}
                   {other && <button class="linkbtn small" onClick={() => setEditU(u)}>{t('marriage_details')}</button>}
                 </div>}
                 {kids.map(k => order === u ? (
@@ -181,17 +182,7 @@ function MoreSheet({ id, onClose }) {
         {p.pu && <button class="row" onClick={act(async () => {
           if (await confirmDialog({ title: t('detach_q'), text: t('detach_p'), ok: t('detach') })) { detachChild(id); toast(t('done'), { action: t('undo'), onAction: undo }); }
         })}><Icon name="x" class="chev" /><span class="grow"><span class="title">{t('detach')}</span></span></button>}
-        <button class="row" onClick={act(async () => {
-          const branch = branchOf(s, id).size - 1;
-          const v = branch > 0
-            ? await confirmDialog({ title: t('delete_q', { name: p.n || '؟' }), text: t('delete_branch_p', { n: count(branch, 'person') }), choices: [{ v: 'one', label: t('delete_one') }, { v: 'branch', label: t('delete_branch', { n: count(branch + 1, 'person') }), danger: true }] })
-            : (await confirmDialog({ title: t('delete_q', { name: p.n || '؟' }), text: t('delete_p'), ok: t('delete'), danger: true })) && 'one';
-          if (!v) return;
-          const photos = deletePerson(id, v);
-          back('people');
-          toast(t('deleted'), { action: t('undo'), onAction: undo, ms: 7000 });
-          void photos;
-        })}><Icon name="trash" class="chev" /><span class="grow"><span class="title err">{t('delete')}</span></span></button>
+        <button class="row" onClick={act(() => askDelete(id, { after: () => back('people') }))}><Icon name="trash" class="chev" /><span class="grow"><span class="title err">{t('delete')}</span></span></button>
       </div>
     </Sheet>
   );

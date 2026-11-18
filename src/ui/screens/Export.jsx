@@ -3,7 +3,7 @@
 import { useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { state, replaceState, mergeStates, update } from '../../core/store.js';
-import { markBackup } from '../../core/actions.js';
+import { markBackup, addFamily } from '../../core/actions.js';
 import { t, count, num, lang } from '../../core/i18n.js';
 import { IX } from '../app-state.js';
 import { go } from '../router.js';
@@ -132,7 +132,7 @@ export function ExportScreen() {
 }
 
 function HtmlSheet({ onClose }) {
-  const [o, setO] = useState({ photos: true, hideLiving: true, notes: true });
+  const [o, setO] = useState({ photos: true, hideLiving: true, notes: true, women: state.value.view.women !== false });
   const make = () => runExport(t('making_file'), async () => {
     const { exportHtml } = await import('../../export/html.js');
     const { blob } = await exportHtml(state.value, { ...o, dKids: state.value.view.dKids });
@@ -146,6 +146,7 @@ function HtmlSheet({ onClose }) {
         <Toggle checked={o.photos} onChange={v => setO({ ...o, photos: v })} label={t('opt_photos')} />
         <Toggle checked={o.hideLiving} onChange={v => setO({ ...o, hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />
         <Toggle checked={o.notes} onChange={v => setO({ ...o, notes: v })} label={t('include_notes')} />
+        <Toggle checked={o.women} onChange={v => setO({ ...o, women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />
       </div>
       <p class="hint">{t('html_private')}</p>
       <button class="btn wide" style="margin-top:14px" onClick={make}><Icon name="share" />{t('make_share')}</button>
@@ -154,13 +155,14 @@ function HtmlSheet({ onClose }) {
 }
 
 /* ---------------- restore ---------------- */
-export async function pickAndRestore() {
+/** pick a backup or GEDCOM file; asNew: it becomes a family of its own */
+export async function pickAndRestore({ asNew = false } = {}) {
   let f;
   try { f = await pickDataFile(); } catch (e) { toast(e && e.code === 'TOO_LARGE' ? t('e_too_large') : t('e_read')); return; }
-  if (f) await restoreFromFile(f);
+  if (f) await restoreFromFile(f, { asNew });
 }
 /** a picked or opened file → the restore sheet (Excel backup, or a GEDCOM file from another program) */
-export async function restoreFromFile(f) {
+export async function restoreFromFile(f, { asNew = false } = {}) {
   if (!f || f.error) { toast(t('e_read')); return; }
   await runExport(t('reading_file'), async () => {
     const bytes = new Uint8Array(f.buffer);
@@ -169,14 +171,14 @@ export async function restoreFromFile(f) {
       if (isZip) {
         const { readExcel } = await import('../../export/excel.js');
         const r = await readExcel(f.buffer);
-        restoreData.value = { ...r, name: f.name, kind: 'xlsx' };
+        restoreData.value = { ...r, name: f.name, kind: 'xlsx', asNew };
       } else {
         const text = new TextDecoder('utf-8').decode(bytes);
         const { importGedcom } = await import('../../export/gedcom.js');
         const { sanitizeState } = await import('../../core/store.js');
         const g = importGedcom(text);
         const st = sanitizeState(g.raw);
-        restoreData.value = { state: st, photoData: new Map(), counts: { people: Object.keys(st.people).length, unions: Object.keys(st.unions).length, photos: 0 }, name: f.name, kind: 'ged' };
+        restoreData.value = { state: st, photoData: new Map(), counts: { people: Object.keys(st.people).length, unions: Object.keys(st.unions).length, photos: 0 }, name: f.name, kind: 'ged', asNew };
       }
     } catch (e) {
       toast(e && e.code === 'no_people' ? t('e_no_people') : e && e.code === 'not_gedcom' ? t('e_not_gedcom') : t('e_bad_file'));
@@ -195,7 +197,10 @@ export function RestoreSheet() {
       if (!ok) return;
     }
     if (d.photoData && d.photoData.size) { const { storePhotos } = await import('../../export/excel.js'); await storePhotos(d.photoData); }
-    if (mode === 'replace') replaceState(d.state);
+    if (mode === 'new') {
+      // a family of its own; the open family stays as it is, among the families
+      if (!addFamily({ raw: d.state, name: d.state.fname || '' })) { toast(t('e_families_full')); return; }
+    } else if (mode === 'replace') replaceState(d.state);
     else update(x => { const m = mergeStates(x, d.state); Object.assign(x, { people: m.people, unions: m.unions, me: m.me, root: m.root }); x.settings = { ...x.settings, onboarded: true }; }, { undo: 'restore' });
     close();
     toast(t('restored', { n: count(d.counts.people, 'person') }), { ms: 5000 });
@@ -210,9 +215,12 @@ export function RestoreSheet() {
         {d.counts.photos > 0 && <p class="small muted" style="margin:4px 0 0">{t('file_photos', { n: count(d.counts.photos, 'photo') })}</p>}
         {d.kind === 'ged' && <p class="small muted" style="margin:4px 0 0">{t('ged_note')}</p>}
       </div>
-      {have > 0 ? (
+      {d.asNew && have > 0 ? (
+        <button class="btn wide" style="margin-top:16px" onClick={() => apply('new')}><Icon name="plus" />{t('restore_new_family')}</button>
+      ) : have > 0 ? (
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
           <button class="btn" onClick={() => apply('merge')}><Icon name="merge" />{t('merge_in')}</button>
+          <button class="btn ghost" onClick={() => apply('new')}><Icon name="plus" />{t('restore_new_family')}</button>
           <button class="btn danger" onClick={() => apply('replace')}>{t('replace_all')}</button>
           <p class="hint" style="margin:0">{t('merge_hint')}</p>
         </div>

@@ -3,8 +3,10 @@
 //   NODE_PATH=<folder with playwright> node tests/web.test.cjs
 // Prints one PASS/FAIL line per check, and "PASS no JS errors" when no page had a script error.
 // Covers: first start from a typed full name, saving across reloads, every screen in Arabic and English
-// and all four tree shapes, adding children and Undo, every export (poster PDF/PNG/SVG, family book,
-// certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone",
+// and all four tree shapes, adding children and Undo, deleting from the tree, the women filter, the order
+// of children, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
+// certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone" and as a
+// new family,
 // broken and crafted files, the PIN lock, offline use, and refusing to run inside a frame.
 const fs = require('fs');
 const os = require('os');
@@ -154,6 +156,96 @@ let browser;
     await ctx.close();
   }
 
+  /* ---------- 3b. delete from the tree, women shown or hidden, children order, families ---------- */
+  {
+    const { ctx, page } = await open({ state: sample });
+    await page.goto(BASE + '#/tree');
+    await tabs(page);
+    await page.waitForTimeout(900);
+    const tap = id => page.evaluate(i => { const g = document.querySelector(`svg g[data-id="${i}"]`); if (g) g.dispatchEvent(new MouseEvent('click', { bubbles: true })); return !!g; }, id);
+    // someone added by mistake: delete from the card the tree opens, then Undo
+    await tap('demofy5');
+    await page.locator('.acts button.danger').click();
+    await page.locator('.dialog .btn.red, .dialog .btn.danger').first().click();
+    await settle(page);
+    let s = await stored(page);
+    check(!s.people.demofy5, 'a person is deleted from the card the tree opens');
+    await page.getByText(AR.undo, { exact: true }).click();
+    await settle(page);
+    s = await stored(page);
+    check(!!s.people.demofy5, '…and Undo brings him back');
+    // women hidden
+    await page.locator('.tree-top .iconbtn').nth(1).click();
+    await page.locator('.sheet .toggle', { hasText: AR.opt_women }).click();
+    await page.waitForTimeout(700);
+    const women = await page.evaluate(ids => ids.filter(i => document.querySelector(`svg g[data-id="${i}"]`)).length, Object.values(sample.people).filter(p => p.g === 'f' && p.id !== sample.root).map(p => p.id));
+    s = await stored(page);
+    check(s.view.women === false && women === 0, `the women filter hides every woman from the tree (${women} left)`);
+    // children order: youngest first puts فهد (1940) before راشد (1935), i.e. to his right
+    const xOf = id => page.evaluate(i => { const g = document.querySelector(`svg g[data-id="${i}"]`); return g ? g.getBoundingClientRect().x : NaN; }, id);
+    const before = (await xOf('demor3')) > (await xOf('demof3'));
+    await page.locator('.sheet .seg button', { hasText: AR.kids_young }).click();
+    await page.waitForTimeout(700);
+    const after = (await xOf('demof3')) > (await xOf('demor3'));
+    s = await stored(page);
+    check(before && after && s.settings.kidsOrder === 'young', 'children follow the order chosen: eldest first, then youngest first');
+    await page.keyboard.press('Escape');
+    await page.locator('.sheet .x, .sheet [aria-label="' + AR.close + '"]').first().click().catch(() => {});
+    // a second family from a full name, then back
+    await go(page, 'tree');
+    await page.locator('.tree-title').click();
+    await page.locator('.sheet .btn', { hasText: AR.family_new }).click();
+    await page.locator('.onb .row', { hasText: AR.nf_name }).click();
+    await page.locator('input.nm').first().fill('هيا سالم ناصر العتيبي');
+    await page.locator('.onb .foot .btn').first().click();
+    await tabs(page);
+    await settle(page);
+    s = await stored(page);
+    const firstId = Object.keys(s.others)[0];
+    check(Object.keys(s.people).length === 3 && s.others[firstId] && Object.keys(s.others[firstId].people).length === 52, 'a new family starts from a full name; the first one waits among the families');
+    const title = await page.locator('.tree-title b').textContent();
+    check(title === 'العتيبي', `the tree shows the new family (${title})`);
+    await page.locator('.tree-title').click();
+    await page.locator('.row.fam .famopen', { hasText: 'الراشد' }).click();
+    await settle(page);
+    s = await stored(page);
+    check(Object.keys(s.people).length === 52 && Object.keys(s.others).length === 1, 'switching back to the first family');
+    await page.reload();
+    await tabs(page);
+    s = await stored(page);
+    check(Object.keys(s.others).length === 1 && Object.keys(s.people).length === 52, 'both families are still there after reopening the app');
+    // delete the second family, then Undo
+    await page.locator('.tree-title').click();
+    await page.locator('.row.fam', { hasText: 'العتيبي' }).locator('.iconbtn').click();
+    await page.locator('.sheet .btn.danger', { hasText: AR.family_delete }).click();
+    await page.locator('.dialog .btn.red, .dialog .btn.danger').first().click();
+    await settle(page);
+    s = await stored(page);
+    check(!Object.keys(s.others).length && Object.keys(s.people).length === 52, 'a family is deleted and the open one stays');
+    await page.getByText(AR.undo, { exact: true }).click();
+    await settle(page);
+    s = await stored(page);
+    check(Object.keys(s.others).length === 1, '…and Undo brings it back');
+    await ctx.close();
+  }
+  {
+    // a poster from the third generation, without women
+    const st = JSON.parse(JSON.stringify(sample));
+    st.poster = { women: false };
+    const { ctx, page } = await open({ state: st });
+    await page.goto(BASE + '#/poster');
+    await tabs(page);
+    await page.waitForTimeout(2500);
+    await page.locator('.chips .chip', { hasText: 'الثالث' }).click();
+    await page.waitForTimeout(1500);
+    const hint = await page.locator('.hint', { hasText: 'الجيل الثالث' }).count();
+    const d = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'poster-gen3.pdf');
+    check(hint > 0 && d.buf.subarray(0, 5).toString('latin1') === '%PDF-' && (await pdfPages(d.buf)) === 1, `a poster from the third generation, without women (${d.buf.length} bytes)`);
+    const s = await stored(page);
+    check(s.poster.fromGen === 3 && s.poster.women === false, 'the poster remembers where it starts');
+    await ctx.close();
+  }
+
   /* ---------- 4. every export ---------- */
   const xlsx = path.join(TMP, 'backup.xlsx');
   let gedFile = '';
@@ -237,6 +329,22 @@ let browser;
     await settle(page);
     const s = await stored(page);
     check(s && family(s) === family(sample), `GEDCOM import: the same family comes back (${s && Object.keys(s.people).length} people)`);
+    await ctx.close();
+  }
+
+  {
+    // a backup added beside the family already open, as a family of its own
+    const { ctx, page } = await open({ state: sample });
+    await page.goto(BASE + '#/export');
+    await tabs(page);
+    const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.getByText(AR.restore, { exact: true }).last().click()]);
+    await fc.setFiles(xlsx);
+    await page.locator('.sheet .btn', { hasText: AR.restore_new_family }).click({ timeout: 60000 });
+    await tabs(page);
+    await settle(page);
+    const s = await stored(page);
+    const other = Object.values(s.others)[0];
+    check(s && Object.keys(s.others).length === 1 && family(s) === family(sample) && other && family(other) === family(sample), 'restore as a new family: the backup opens beside the family already there');
     await ctx.close();
   }
 

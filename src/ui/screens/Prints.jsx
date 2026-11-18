@@ -1,6 +1,6 @@
 // Designing what is printed: the tree poster (shape, look, paper, titles, what to show) with a live
 // preview, the family book, and the lineage certificate.
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { state } from '../../core/store.js';
 import { setPoster } from '../../core/actions.js';
 import { t, count, num, lang } from '../../core/i18n.js';
@@ -12,7 +12,8 @@ import { TopBar, Seg, Toggle, Field, toast, Spinner, PersonRow } from '../kit.js
 import { deliverFile, printPdf, isNative } from '../../core/native.js';
 import { photoURL } from '../../core/photos.js';
 import { runExport, fileBase } from './Export.jsx';
-import { defaultTitles, fanTitles } from '../../export/poster.js';
+import { defaultTitles, fanTitles, genName } from '../../export/poster.js';
+import { generations } from '../../core/model.js';
 import { nameOf, lineOf } from '../people.js';
 
 /* ---------- the preview: a page you can pinch and drag ---------- */
@@ -133,18 +134,24 @@ export function PosterScreen() {
     mode: saved.layout || (s.view.mode === 'f' ? 'f' : s.view.mode) || 'v', theme: saved.theme || 'sadu', paper: saved.paper || 'A3', orient: saved.orient || 'auto',
     head: saved.head, title: saved.title || '', sub: saved.sub, root: saved.root && ix.P[saved.root] ? saved.root : '', person: '',
     photos: saved.photos !== false, dates: saved.dates !== false, spouses: !!saved.spouses, dKids: saved.dKids != null ? saved.dKids : s.view.dKids,
+    women: saved.women != null ? saved.women : s.view.women !== false, fromGen: saved.fromGen || 1,
     colors: saved.colors !== false, legend: saved.legend !== false, hideLiving: !!saved.hideLiving
   }));
   const set = patch => setO(x => ({ ...x, ...patch }));
   useEffect(() => {
-    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving }), 600);
+    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, women: o.women, fromGen: o.fromGen, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving }), 600);
     return () => clearTimeout(tm);
   }, [o]);
   const [warn, setWarn] = useState(null);
   const top = o.root && ix.P[o.root] ? o.root : root;
   const person = o.person && ix.P[o.person] ? o.person : (s.me && ix.P[s.me] ? s.me : top);
-  const opts = { ...o, mode: o.mode, root: top, person, title: o.title || undefined };
-  const def = o.mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, top);
+  // the generations under the top (with the same rules as the drawing): where the poster may start
+  const gens = useMemo(() => generations(ix, top, { daughtersKids: o.dKids, women: o.women }), [ix, top, o.dKids, o.women]);
+  const genCount = Math.max(1, ...gens.values());
+  const fromGen = Math.min(o.fromGen || 1, genCount);
+  const inGen = n => [...gens.values()].filter(g => g === n).length;
+  const opts = { ...o, mode: o.mode, root: top, person, fromGen, title: o.title || undefined };
+  const def = o.mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, top, fromGen);
   const make = async () => {
     const { posterPreview } = await import('../../export/printed.js');
     const r = await posterPreview(ix, s, opts, photoUrls);
@@ -198,8 +205,17 @@ export function PosterScreen() {
         <div class="section">
           <h2>{o.mode === 'f' ? t('fan_person') : t('starts_from')}</h2>
           <div class="list">
-            <PersonRow id={o.mode === 'f' ? person : top} meta={o.mode === 'f' ? '' : t('descendants_n', { n: count(ix.descendants(top).size, 'person') })} onClick={() => pickPerson({ title: o.mode === 'f' ? t('fan_person') : t('starts_from'), onPick: id => set(o.mode === 'f' ? { person: id } : { root: id }) })} />
+            <PersonRow id={o.mode === 'f' ? person : top} meta={o.mode === 'f' ? '' : t('descendants_n', { n: count(ix.descendants(top).size, 'person') })} onClick={() => pickPerson({ title: o.mode === 'f' ? t('fan_person') : t('starts_from'), onPick: id => set(o.mode === 'f' ? { person: id, fromGen: 1 } : { root: id, fromGen: 1 }) })} />
           </div>
+          {o.mode !== 'f' && genCount > 1 && <>
+            <h3 class="subh">{t('from_gen')}</h3>
+            <div class="chips wrap" role="group" aria-label={t('from_gen')}>
+              {Array.from({ length: genCount }, (_, i) => i + 1).map(n => (
+                <button key={n} class="chip" aria-pressed={fromGen === n ? 'true' : 'false'} onClick={() => set({ fromGen: n })}>{genName(n).replace(/^(الجيل|generation) /, '')}</button>
+              ))}
+            </div>
+            <p class="hint">{fromGen === 1 ? t('from_gen_all') : t('from_gen_hint', { gen: genName(fromGen), n: count(inGen(fromGen), 'person') })}</p>
+          </>}
         </div>
         <div class="section">
           <h2>{t('titles')}</h2>
@@ -212,8 +228,9 @@ export function PosterScreen() {
           <div class="list">
             <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />
             <Toggle checked={o.dates} onChange={v => set({ dates: v })} label={t('opt_dates')} />
-            {o.mode === 'v' && <Toggle checked={o.spouses} onChange={v => set({ spouses: v })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
-            {o.mode !== 'f' && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
+            {o.mode !== 'f' && <Toggle checked={o.women} onChange={v => set({ women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />}
+            {o.mode === 'v' && o.women && <Toggle checked={o.spouses} onChange={v => set({ spouses: v })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
+            {o.mode !== 'f' && o.women && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
             {o.mode !== 'f' && <Toggle checked={o.colors} onChange={v => set({ colors: v })} label={t('opt_colors')} />}
             <Toggle checked={o.legend} onChange={v => set({ legend: v })} label={t('opt_legend')} />
             <Toggle checked={o.hideLiving} onChange={v => set({ hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />

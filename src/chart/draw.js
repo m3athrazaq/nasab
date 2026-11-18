@@ -67,11 +67,13 @@ export function drawDescendants(L, th, o) {
   /* generation bands */
   if (o.bands && (L.mode === 'v' || L.mode === 'h')) {
     const maxDepth = Math.max(0, ...L.nodes.map(n => n.depth));
-    for (let d = 0; d <= maxDepth; d++) {
-      const label = o.genLabel ? o.genLabel(d + 1) : '';
+    const base = L.genBase || 1; // row d is generation d + base (a tree drawn from a lower generation starts there)
+    for (let d = L.firstRow || 0; d <= maxDepth; d++) {
+      const label = o.genLabel ? o.genLabel(d + base) : '';
+      const odd = (d + base) % 2 === 1;
       if (L.mode === 'v') {
         const y0 = d * M.level - M.R - 10, y1 = d * M.level + L.box.bottom + 6;
-        if (d % 2 === 0) items.push({ t: 'rect', x: b.x0 - 60, y: y0, w: b.x1 - b.x0 + 120, h: y1 - y0, r: 8, fill: th.band });
+        if (odd) items.push({ t: 'rect', x: b.x0 - 60, y: y0, w: b.x1 - b.x0 + 120, h: y1 - y0, r: 8, fill: th.band });
         if (label) {
           const size = 11;
           const w = measure(th.fonts.years, label, size);
@@ -80,7 +82,7 @@ export function drawDescendants(L, th, o) {
         }
       } else {
         const x = (L.rtl ? -1 : 1) * d * M.level;
-        if (d % 2 === 0) items.push({ t: 'rect', x: x - M.w / 2 - 8, y: b.y0 - 34, w: M.w + 16, h: b.y1 - b.y0 + 60, r: 8, fill: th.band });
+        if (odd) items.push({ t: 'rect', x: x - M.w / 2 - 8, y: b.y0 - 34, w: M.w + 16, h: b.y1 - b.y0 + 60, r: 8, fill: th.band });
         if (label) {
           const size = 11, w = measure(th.fonts.years, label, size);
           items.push({ t: 'text', x, y: b.y0 - 14, s: label, font: th.fonts.years, size, fill: th.bandText, w });
@@ -97,6 +99,15 @@ export function drawDescendants(L, th, o) {
     items.push({ t: 'path', d: `M-15 ${H}C-30 ${H + 6} -46 ${H + 4} -60 ${H + 12}M15 ${H}C30 ${H + 6} 46 ${H + 4} 60 ${H + 12}M-4 ${H}C-6 ${H + 10} -12 ${H + 16} -18 ${H + 22}M4 ${H}C6 ${H + 10} 12 ${H + 16} 18 ${H + 22}`, fill: 'none', stroke: trunk, sw: 3, cap: 'round' });
     items.push({ t: 'path', d: `M-150 ${H + 14}Q0 ${H + 2} 150 ${H + 14}`, fill: 'none', stroke: th.line, sw: 1, op: 0.6, cap: 'round' });
   }
+  const trunkPlaque = (label, cx) => {
+    // a name on a plaque across the trunk (the founder, or the family when the tree starts lower)
+    const nm = fitText(measure, label, th.fonts.title || th.fonts.name, M.nameSize * 1.45, 150);
+    const pw = nm.w + 26, ph = nm.size * 1.55, py = M.trunk * 0.5;
+    return [
+      { t: 'rect', x: cx - pw / 2, y: py - ph / 2, w: pw, h: ph, r: ph / 2, fill: th.pill, stroke: th.gold, sw: 1.2 },
+      { t: 'text', x: cx, y: py + nm.size * 0.36, s: nm.s, font: th.fonts.title || th.fonts.name, size: nm.size, fill: th.ink, w: nm.w }
+    ];
+  };
 
   /* links (the lineage thread on top) */
   const plain = [], lit = [];
@@ -169,11 +180,7 @@ export function drawDescendants(L, th, o) {
       const R = root ? M.R * 1.9 : M.R;
       seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos, measure, ring });
       if (root) {
-        // the founder's name on a plaque across the trunk
-        const nm = fitText(measure, inf.name, th.fonts.title || th.fonts.name, M.nameSize * 1.45, 150);
-        const pw = nm.w + 26, ph = nm.size * 1.55, py = M.trunk * 0.5;
-        g.items.push({ t: 'rect', x: n.x - pw / 2, y: py - ph / 2, w: pw, h: ph, r: ph / 2, fill: th.pill, stroke: th.gold, sw: 1.2 });
-        g.items.push({ t: 'text', x: n.x, y: py + nm.size * 0.36, s: nm.s, font: th.fonts.title || th.fonts.name, size: nm.size, fill: th.ink, w: nm.w });
+        g.items.push(...trunkPlaque(inf.name, n.x));
         g.hit = { x: n.x - Math.max(R, 60), y: n.y - R - 6, w: 2 * Math.max(R, 60), h: R + M.trunk * 0.5 + 30 };
       } else if (parents.has(n.key)) {
         // a branch that goes on: the name under the seal, upright, with a halo over the branches
@@ -192,6 +199,7 @@ export function drawDescendants(L, th, o) {
     }
     items.push(g);
   }
+  if (L.mode === 'r' && L.virtual && o.trunkLabel) items.push(...trunkPlaque(o.trunkLabel, 0));
   return { items, bounds: b };
 }
 function badge(items, th, measure, x, y, label, col) {

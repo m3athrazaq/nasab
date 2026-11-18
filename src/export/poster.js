@@ -16,8 +16,14 @@ export const PAPERS = {
 };
 const MAX_SIDE = 14400; // PDF page limit (200 inches)
 
-/** the title and subtitle a tree gets unless the user wrote his own */
-export function defaultTitles(ix, root) {
+const ORDINAL_AR = ['', 'الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس', 'السابع', 'الثامن', 'التاسع', 'العاشر'];
+/** "الجيل الثالث" / "generation 3" */
+export function genName(n) {
+  if (lang.value === 'ar') return 'الجيل ' + (ORDINAL_AR[n] || num(n));
+  return 'generation ' + n;
+}
+/** the title and subtitle a tree gets unless the user wrote his own (fromGen: drawn from that generation down) */
+export function defaultTitles(ix, root, fromGen = 1) {
   const p = ix.P[root];
   if (!p) return { head: '', title: '', sub: '' };
   const fam = ix.familyOf(root);
@@ -25,8 +31,9 @@ export function defaultTitles(ix, root) {
   const line = ix.paternalLine(root, 3).map(x => ix.P[x].n);
   const lin = lineageText(line, { gender: p.g, style: 'bin', lang: lang.value });
   const yrs = lifeYears(p);
-  if (ar) return { head: fam ? 'شجرة عائلة' : 'شجرة', title: fam ? familyTitle(fam) : 'ذرية ' + p.n, sub: 'ذرية الجد ' + lin + (yrs ? ' (' + yrs + ')' : '') };
-  return { head: 'The family tree of', title: fam ? (fam.replace(/^(آل|ال)\s?/, '') || fam) : p.n, sub: 'Descendants of ' + lin + (yrs ? ' (' + yrs + ')' : '') };
+  const from = fromGen > 1 ? (ar ? ' — من ' + genName(fromGen) : ', from ' + genName(fromGen)) : '';
+  if (ar) return { head: fam ? 'شجرة عائلة' : 'شجرة', title: fam ? familyTitle(fam) : 'ذرية ' + p.n, sub: 'ذرية الجد ' + lin + (yrs ? ' (' + yrs + ')' : '') + from };
+  return { head: 'The family tree of', title: fam ? (fam.replace(/^(آل|ال)\s?/, '') || fam) : p.n, sub: 'Descendants of ' + lin + (yrs ? ' (' + yrs + ')' : '') + from };
 }
 
 /** titles of an ancestors' fan: the person's own lineage */
@@ -43,7 +50,8 @@ export function fanTitles(ix, id) {
 
 /**
  * opts: { mode: 'v'|'h'|'r'|'f', theme, paper: 'A4'…'A0'|'auto', orient: 'auto'|'portrait'|'landscape',
- *         root, title, head, sub, photos, dates, spouses, dKids, colors, hideLiving, legend, gens (fan) }
+ *         root, fromGen (1 = from root), title, head, sub, photos, dates, spouses, dKids, women, colors,
+ *         hideLiving, legend, gens (fan) }
  * env:  { measure(font, text, size), photoIds: Set (photos that will be drawn), today: Date }
  * → { W, H, scene, scale, nameSize, warn }
  */
@@ -52,11 +60,15 @@ export function buildPoster(ix, s, opts, env) {
   const mode = opts.mode || 'v';
   const root = opts.root && ix.P[opts.root] ? opts.root : (s.root && ix.P[s.root] ? s.root : ix.defaultRoot(s.me));
   if (!root) return null;
+  const women = opts.women !== false;
   const info = makeInfo(ix, s, { hideLiving: opts.hideLiving, photoIds: env.photoIds });
   const rtl = lang.value === 'ar';
   const measure = env.measure;
+  const fromGen = mode === 'f' ? 1 : Math.max(1, opts.fromGen || 1);
+  const fam = ix.familyOf(root);
   const o = {
-    info, measure, photos: opts.photos !== false, dates: opts.dates !== false, spouses: !!opts.spouses, colors: opts.colors !== false,
+    info, measure, photos: opts.photos !== false, dates: opts.dates !== false, spouses: !!opts.spouses && women, colors: opts.colors !== false,
+    trunkLabel: fam ? familyTitle(fam) : ix.P[root].n,
     bands: false, num: n => num(n),
     motherLabel: u => { const w = ix.U[u] && ix.U[u].w; return w && ix.P[w] ? (rtl ? 'من ' : 'by ') + ix.P[w].n : ''; }
   };
@@ -70,7 +82,8 @@ export function buildPoster(ix, s, opts, env) {
   } else {
     // wider cards in print (names are not cut as often)
     const metrics = mode === 'v' ? { w: 104 } : mode === 'h' ? { w: 180 } : {};
-    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, spouses: !!opts.spouses, dates: o.dates, rtl, metrics, collapsed: new Set() });
+    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, women, fromGen, spouses: o.spouses, dates: o.dates, rtl, metrics, collapsed: new Set() });
+    if (!L.nodes.length) return null; // nobody in that generation
     chart = drawDescendants(L, th, o);
   }
   const b = L.bounds;
@@ -79,7 +92,7 @@ export function buildPoster(ix, s, opts, env) {
   /* page size */
   let W, H;
   const landscape = opts.orient === 'landscape' || (opts.orient !== 'portrait' && cw / ch > 1.08);
-  const titles = mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, root);
+  const titles = mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, root, fromGen);
   const head = opts.head != null ? opts.head : titles.head;
   const title = opts.title || titles.title;
   const sub = opts.sub != null ? opts.sub : titles.sub;
@@ -132,7 +145,7 @@ export function buildPoster(ix, s, opts, env) {
   {
     // how many people and generations, and the date
     const n = mode === 'f' ? L.slots.filter(x => x.id).length + 1 : L.nodes.filter(x => !x.dup).length;
-    const gens = mode === 'f' ? Math.max(1, ...L.slots.filter(x => x.id).map(x => x.g + 1)) : Math.max(0, ...L.nodes.map(x => x.depth)) + 1;
+    const gens = mode === 'f' ? Math.max(1, ...L.slots.filter(x => x.id).map(x => x.g + 1)) : Math.max(0, ...L.nodes.map(x => x.depth)) - (L.firstRow || 0) + 1;
     const now = env.today || new Date();
     const today = makeD({ cal: 'g', y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() });
     const line = lang.value === 'ar'
@@ -177,7 +190,7 @@ function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
   };
   if (mode !== 'f') {
     parts.push({ icon: shape('m', th.ink2), label: ar ? 'ذكر' : 'male' });
-    parts.push({ icon: shape('f', th.ink2), label: ar ? 'أنثى' : 'female' });
+    if (opts.women !== false) parts.push({ icon: shape('f', th.ink2), label: ar ? 'أنثى' : 'female' });
     parts.push({ icon: [{ t: 'circle', cx: 0, cy: 0, r: R, fill: th.bg, stroke: th.ink3, sw: 1.2 * u }], label: ar ? 'المفرغ: متوفى' : 'hollow: deceased' });
     if (opts.colors !== false && L.nodes) {
       const kids = L.nodes.filter(n => n.depth === 1 && !n.dup);

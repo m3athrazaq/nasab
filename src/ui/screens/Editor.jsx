@@ -13,6 +13,7 @@ import { addPhoto } from '../../core/photos.js';
 import { pickFiles } from '../../core/native.js';
 import { branchInk } from '../app-state.js';
 import { initial } from '../../core/names.js';
+import { askDelete } from './Sheets.jsx';
 
 export function PersonEditor({ id }) {
   const ix = IX.value, p = ix.P[id];
@@ -95,6 +96,7 @@ export function PersonEditor({ id }) {
           <textarea class="input naskh" value={f.note} onInput={e => set({ note: e.currentTarget.value })} rows="6" />
         </Field>
         <button class="btn wide" style="margin-top:22px" onClick={save}><Icon name="check" />{t('save')}</button>
+        <button class="btn danger wide" style="margin-top:12px" onClick={() => askDelete(id, { after: () => back('people') })}><Icon name="trash" />{t('delete_person')}</button>
       </div>
     </div>
   );

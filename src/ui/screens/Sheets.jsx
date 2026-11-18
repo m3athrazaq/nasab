@@ -1,17 +1,37 @@
 // The person's card (tap in the tree) and the quick forms that add relatives in a few taps.
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { state, undo } from '../../core/store.js';
-import { addChildren, addParent, addSpouse, addSibling, addPerson, setRoot, toggleCollapsed, setView, editUnion } from '../../core/actions.js';
+import { addChildren, addParent, addSpouse, addSibling, addPerson, setRoot, toggleCollapsed, setView, editUnion, deletePerson, branchOf } from '../../core/actions.js';
 import { t, count, lang } from '../../core/i18n.js';
 import { guessGender, parseChain, cleanName } from '../../core/names.js';
 import { IX, personSheet, addSheet, openAdd, pickPerson, focusOn } from '../app-state.js';
 import { go } from '../router.js';
 import { Icon } from '../icons.jsx';
-import { Sheet, Seal, toast, DateInput, Seg } from '../kit.jsx';
+import { Sheet, Seal, toast, DateInput, Seg, confirmDialog } from '../kit.jsx';
 import { nameOf, lineTail, yearsOf, relToMe } from '../people.js';
 import { fanPerson } from './Tree.jsx';
 
 const undoToast = text => toast(text, { action: t('undo'), onAction: () => undo(), ms: 5500 });
+
+/**
+ * delete someone added by mistake: asks first (him alone, or him and everyone below him), then offers
+ * Undo for a few seconds. after() runs once deleted (e.g. leave his page). Returns true when deleted.
+ */
+export async function askDelete(id, { after } = {}) {
+  const s = state.value, p = s.people[id];
+  if (!p) return false;
+  const name = p.n || '؟';
+  const below = branchOf(s, id).size - 1;
+  const v = below > 0
+    ? await confirmDialog({ title: t('delete_q', { name }), text: t('delete_branch_p', { n: count(below, 'person') }), choices: [{ v: 'one', label: t('delete_one') }, { v: 'branch', label: t('delete_branch', { n: count(below + 1, 'person') }), danger: true }] })
+    : (await confirmDialog({ title: t('delete_q', { name }), text: t('delete_p'), ok: t('delete'), danger: true })) && 'one';
+  if (!v) return false;
+  personSheet.value = null;
+  deletePerson(id, v);
+  if (after) after();
+  toast(t('deleted_name', { name }), { action: t('undo'), onAction: undo, ms: 8000 });
+  return true;
+}
 
 export function PersonSheet() {
   const id = personSheet.value;
@@ -46,6 +66,7 @@ export function PersonSheet() {
         <button onClick={act(() => { fanPerson.value = id; setView({ mode: 'f' }); go('tree'); })}><Icon name="fan" />{t('act_fan')}</button>
         {hasKids && s.view.mode !== 'f' && <button onClick={act(() => toggleCollapsed(id))}><Icon name={collapsed ? 'eye' : 'minus'} />{collapsed ? t('act_expand') : t('act_collapse')}</button>}
         <button onClick={act(() => go('relation?a=' + id))}><Icon name="link" />{t('act_relation')}</button>
+        <button class="danger" onClick={() => askDelete(id)}><Icon name="trash" />{t('delete')}</button>
       </div>
     </Sheet>
   );

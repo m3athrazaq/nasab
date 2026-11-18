@@ -63,9 +63,14 @@ export async function putPhotoBlob(id, blob) {
   await idbPut('photos', id, blob);
 }
 export const allPhotoIds = () => idbKeys('photos').catch(() => []);
-/** photos nobody uses any more (a deleted person, a replaced backup) */
+/** the photos the people of every family use (the open one and the others) */
+export function photosInUse(state) {
+  const all = [state, ...Object.values(state.others || {})];
+  return new Set(all.flatMap(f => Object.values(f.people || {}).map(p => p.photo)).filter(Boolean));
+}
+/** photos nobody uses any more (a deleted person, a replaced backup) — in any of the families */
 export async function tidyPhotos(state) {
-  const keep = new Set(Object.values(state.people).map(p => p.photo).filter(Boolean));
+  const keep = photosInUse(state);
   for (const id of await allPhotoIds()) if (!keep.has(id)) await deletePhoto(id);
 }
 /** a smaller JPEG of a photo, as bytes (for PDFs, images and shared files) */

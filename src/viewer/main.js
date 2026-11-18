@@ -15,10 +15,12 @@ const T = ar ? { gen: n => 'الجيل ' + n, search: 'ابحث عن اسم…',
   : { gen: n => 'Generation ' + n, search: 'Search a name…', none: 'No results', born: 'Born', died: 'Died', parents: 'Parents', spouses: 'Marriages', children: 'Children', siblings: 'Siblings', v: 'Top-down', h: 'Sideways', made: 'Made with Nasab', job: 'Work', place: 'Place', close: 'Close', fit: 'Whole tree', from: n => 'by ' + n };
 
 // people as the app's index expects them
-const state = { people: {}, unions: D.unions };
+// (children keep the order the app showed: o = among the same parents, r = among all the father's)
+const state = { people: {}, unions: D.unions, settings: { kidsOrder: 'manual' } };
 for (const [id, p] of Object.entries(D.people)) state.people[id] = { id, n: p.n, g: p.g, b: p.bk || '', d: p.dk || '', dead: !!p.dead, pu: p.pu || '', ord: p.o || 0, at: p.at || 0, fam: p.fam || '' };
 const ix = buildIndex(state);
 ix.living = id => !D.people[id].dead;
+ix.order = list => [...list].sort((a, b) => ((D.people[a] && D.people[a].r) || 1e9) - ((D.people[b] && D.people[b].r) || 1e9));
 const dark = matchMedia('(prefers-color-scheme: dark)').matches;
 const th = dark ? SCREEN.dark : SCREEN.light;
 
@@ -38,7 +40,7 @@ let mode = 'v', sel = null, L = null;
 const view = { x: 0, y: 0, k: 1 };
 const svgHost = $('#tree');
 function render() {
-  L = layoutDescendants(ix, D.root, { mode, dKids: !!D.dKids, dates: true, rtl: ar });
+  L = layoutDescendants(ix, D.root, { mode, dKids: !!D.dKids, women: D.women !== false, dates: true, rtl: ar });
   const thread = sel ? threadKeys(L, sel) : new Set();
   const sc = drawDescendants(L, { ...th, fonts: { name: 'naskhB', years: 'ui', initial: 'naskhB', title: 'naskhB', text: 'ui' } }, { info, measure, photos: true, dates: true, colors: true, bands: true, genLabel: T.gen, selected: sel, thread, me: D.me, num: n => n });
   const css = `text{font-family:${ar ? '"Noto Naskh Arabic","Geeza Pro","Traditional Arabic",serif' : 'Georgia,serif'}}`;

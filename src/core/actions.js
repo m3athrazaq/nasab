@@ -1,6 +1,6 @@
 // Everything that changes the family: adding people and relations, editing, deleting, merging.
 // Each action is one step the user can undo.
-import { state, update, pruneUnions, breakLoops, sPerson, sUnion, sPoster, PERSON_FIELDS, ID_RE } from './store.js';
+import { state, update, clearUndo, pruneUnions, breakLoops, sPerson, sUnion, sPoster, sanitizeState, familyPart, defaultView, PERSON_FIELDS, ID_RE, MAX_FAMILIES, str } from './store.js';
 import { uid } from './util.js';
 import { sortKeyD } from './dates.js';
 import { cleanName, guessGender } from './names.js';
@@ -412,7 +412,7 @@ export const markBackup = () => update(s => { s.lastBackup = Date.now(); s.lastB
  * a full name typed at the start → the person and his fathers, linked. Returns the person's id.
  * names: [self, father, grandfather, …]; the family name goes on the top one (everyone inherits it).
  */
-export function buildChain(names, { family = '', gender = '', birth = '' } = {}) {
+export function buildChain(names, { family = '', gender = '', birth = '', me = true } = {}) {
   let self = '';
   update(s => {
     draft(s);
@@ -424,7 +424,7 @@ export function buildChain(names, { family = '', gender = '', birth = '' } = {})
       child = id;
     });
     if (family && child) setP(s, child, { fam: cleanName(family) });
-    s.me = self;
+    if (me) s.me = self;
     s.root = child || self;
     s.settings = { ...s.settings, onboarded: true };
   }, { undo: 'add' });
@@ -433,3 +433,60 @@ export function buildChain(names, { family = '', gender = '', birth = '' } = {})
 
 /** the people of the family sorted for lists: by birth, then name */
 export const byBirth = s => (a, b) => sortKeyD(s.people[a].b) - sortKeyD(s.people[b].b) || String(s.people[a].n).localeCompare(String(s.people[b].n), 'ar');
+
+/* ---------------- families ---------------- */
+// One family is open at a time (state.people, unions, me, root, view…); the others wait in state.others,
+// each under its own id. Switching moves the open one there and takes the chosen one out.
+
+/** a new family, empty or from a backup / sample; it becomes the open one. Returns its id, or '' when full */
+export function addFamily({ raw = null, name = '' } = {}) {
+  const s0 = state.value;
+  if (Object.keys(s0.others).length + 1 >= MAX_FAMILIES) return '';
+  const fid = uid();
+  const next = familyPart(sanitizeState(raw || {}, true));
+  if (!raw) next.view = { ...defaultView(), mode: s0.view.mode === 'f' ? 'v' : s0.view.mode };
+  update(s => {
+    s.others = { ...s.others, [s.fid]: familyPart(s) };
+    Object.assign(s, next, { fid, fname: str(name, 60) || next.fname || '' });
+    s.settings = { ...s.settings, onboarded: true };
+  });
+  clearUndo();
+  return fid;
+}
+/** open another family */
+export function switchFamily(fid) {
+  const s0 = state.value;
+  if (fid === s0.fid || !s0.others[fid]) return false;
+  update(s => {
+    const others = { ...s.others, [s.fid]: familyPart(s) };
+    const next = others[fid];
+    delete others[fid];
+    Object.assign(s, next, { fid, others });
+  });
+  clearUndo();
+  return true;
+}
+/** delete a family (the open one: another one opens). The last family cannot be deleted here. */
+export function deleteFamily(fid) {
+  const s0 = state.value;
+  const ids = Object.keys(s0.others);
+  if (fid !== s0.fid && !s0.others[fid]) return false;
+  if (fid === s0.fid && !ids.length) return false;
+  update(s => {
+    const others = { ...s.others };
+    if (fid !== s.fid) { delete others[fid]; s.others = others; return; }
+    const nextId = ids[0];
+    const next = others[nextId];
+    delete others[nextId];
+    Object.assign(s, next, { fid: nextId, others });
+  }, { undo: 'delete_family' });
+  return true;
+}
+export function renameFamily(fid, name) {
+  const v = str(name, 60);
+  update(s => {
+    if (fid === s.fid) { s.fname = v; return; }
+    if (!s.others[fid]) return false;
+    s.others = { ...s.others, [fid]: { ...s.others[fid], fname: v } };
+  });
+}

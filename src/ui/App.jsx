@@ -2,13 +2,14 @@
 import { useEffect } from 'preact/hooks';
 import { effect } from '@preact/signals';
 import { state, saveError } from '../core/store.js';
-import { ready, personSheet } from './app-state.js';
+import { ready, personSheet, newFamily } from './app-state.js';
 import { route, go, back, canGoBack, isTab, closeTopOverlay } from './router.js';
 import { t } from '../core/i18n.js';
 import { Icon } from './icons.jsx';
 import { Toasts, DialogHost, toast, PickerSheet } from './kit.jsx';
 import { onBackButton, exitApp, takeOpenedFile, onFileOpened, isNative } from '../core/native.js';
-import { TreeScreen, ViewSheet } from './screens/Tree.jsx';
+import { TreeScreen, ViewSheet, rootSheet } from './screens/Tree.jsx';
+import { FamiliesSheet } from './screens/Families.jsx';
 import { PersonSheet, AddSheet } from './screens/Sheets.jsx';
 import { PersonPage } from './screens/Person.jsx';
 import { PersonEditor } from './screens/Editor.jsx';
@@ -92,6 +93,7 @@ export function App() {
   if (!ready.value) return null;
   if (s.settings.lock && !unlocked.value) return <LockScreen />;
   if (!s.settings.onboarded) return <><Onboarding /><RestoreSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
+  if (newFamily.value) return <><Onboarding family /><RestoreSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
   const rt = route.value;
   const known = isTab(rt.name) || PARENT[rt.name];
   const name = known ? rt.name : 'tree';
@@ -106,6 +108,7 @@ export function App() {
       <AddSheet />
       <ViewSheet />
       <PickerSheet />
+      <FamiliesSheet onRoot={() => { go('tree'); rootSheet.value = true; }} />
       <RestoreSheet />
       <BusyOverlay />
       <Toasts />

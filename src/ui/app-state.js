@@ -8,11 +8,11 @@ import { SCREEN } from '../chart/themes.js';
 
 export const ready = signal(false);
 
-/* the index is rebuilt only when people or marriages change (not for view or setting changes) */
-let ixMemo = { p: null, u: null, ix: null };
+/* the index is rebuilt only when people, marriages or the order of brothers and sisters change */
+let ixMemo = { p: null, u: null, o: null, ix: null };
 export const IX = computed(() => {
   const s = state.value;
-  if (ixMemo.p !== s.people || ixMemo.u !== s.unions) ixMemo = { p: s.people, u: s.unions, ix: buildIndex(s) };
+  if (ixMemo.p !== s.people || ixMemo.u !== s.unions || ixMemo.o !== s.settings.kidsOrder) ixMemo = { p: s.people, u: s.unions, o: s.settings.kidsOrder, ix: buildIndex(s) };
   return ixMemo.ix;
 });
 /** the top of the tree: the one chosen, else the founder of "me", else the head of the biggest family */
@@ -60,6 +60,8 @@ export const addSheet = signal(null);     // { kind: 'child'|'children'|'father'
 export const pickerSheet = signal(null);  // { title, onPick, exclude, filter }
 export const viewSheet = signal(false);   // tree display options
 export const focusRequest = signal(null); // { id, ts } — ask the tree to centre on someone
+export const familiesSheet = signal(false); // the list of families (switch, add, rename, delete)
+export const newFamily = signal(false);     // starting a new family (full screen, like the first start)
 
 export const openPerson = id => { personSheet.value = id; };
 export const openAdd = (kind, of, extra = {}) => { addSheet.value = { kind, of, ...extra }; };

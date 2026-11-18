@@ -19,19 +19,25 @@ export function defaultSettings() {
     cal: 'entered', both: true,           // dates: the calendar they were entered in first, the other in brackets
     style: 'bin', depth: 4,               // full names: "خالد بن راشد بن …", four names
     mercy: true,                          // "رحمه الله" after the names of the deceased
+    kidsOrder: 'old',                     // brothers and sisters: eldest first ('old'), youngest first, or as entered
     onboarded: false, lock: '', lockSalt: '', lockLen: 0   // the PIN lock: salted hash and the PIN's length
   };
 }
 export function defaultView() {
-  return { mode: 'v', spouses: false, dKids: false, photos: true, dates: true, colors: true, bands: true, collapsed: [] };
+  return { mode: 'v', spouses: false, dKids: false, women: true, photos: true, dates: true, colors: true, bands: true, collapsed: [] };
 }
 export function defaultState() {
   return {
     v: STATE_VERSION, rev: 0, created: Date.now(), updated: Date.now(),
     settings: defaultSettings(), me: '', root: '', view: defaultView(),
-    people: {}, unions: {}, poster: {}, lastBackup: 0, lastBackupRev: 0
+    people: {}, unions: {}, poster: {}, lastBackup: 0, lastBackupRev: 0,
+    fid: uid(), fname: '', others: {}   // this family's id and name; the other families kept in the app
   };
 }
+/** what belongs to one family (the rest of the state — settings, the other families — belongs to the app) */
+export const FAMILY_KEYS = ['people', 'unions', 'me', 'root', 'view', 'poster', 'lastBackup', 'lastBackupRev', 'created', 'updated', 'fname'];
+export const familyPart = s => Object.fromEntries(FAMILY_KEYS.map(k => [k, s[k]]));
+export const MAX_FAMILIES = 30;
 
 /* ---------------- validation ---------------- */
 const CTRL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
@@ -73,7 +79,7 @@ const uniqueId = (v, used) => { const s = v == null ? '' : String(v).trim(); con
  * Ids that are not in the app's own format (e.g. "1", "2" typed in Excel) get new ids, and every
  * reference written with the old one follows.
  */
-export function sanitizeState(raw) {
+export function sanitizeState(raw, nested = false) {
   const d = defaultState();
   if (!raw || typeof raw !== 'object') return d;
   const s = raw.settings || {};
@@ -82,7 +88,7 @@ export function sanitizeState(raw) {
     lang: oneOf(s.lang, ['ar', 'en'], 'ar'), theme: oneOf(s.theme, ['auto', 'light', 'dark'], 'auto'), digits: oneOf(s.digits, ['latn', 'arab'], 'latn'),
     cal: oneOf(s.cal, ['entered', 'g', 'h'], 'entered'), both: s.both == null ? ds.both : bool(s.both),
     style: oneOf(s.style, ['bin', 'plain'], 'bin'), depth: s.depth == null ? ds.depth : int(s.depth, 0, 12, ds.depth),
-    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), onboarded: bool(s.onboarded),
+    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), kidsOrder: oneOf(s.kidsOrder, ['old', 'young', 'manual'], ds.kidsOrder), onboarded: bool(s.onboarded),
     lock: typeof s.lock === 'string' && /^[a-f0-9]{64}$/.test(s.lock) ? s.lock : '',
     lockSalt: typeof s.lockSalt === 'string' && /^[a-f0-9]{16,64}$/.test(s.lockSalt) ? s.lockSalt : '',
     lockLen: int(s.lockLen, 4, 8, 0)
@@ -139,13 +145,22 @@ export function sanitizeState(raw) {
   d.me = pid(raw.me); d.root = pid(raw.root);
   const v = raw.view || {};
   d.view = {
-    mode: oneOf(v.mode, VIEW_MODES, 'v'), spouses: bool(v.spouses), dKids: bool(v.dKids),
+    mode: oneOf(v.mode, VIEW_MODES, 'v'), spouses: bool(v.spouses), dKids: bool(v.dKids), women: v.women == null ? true : bool(v.women),
     photos: v.photos == null ? true : bool(v.photos), dates: v.dates == null ? true : bool(v.dates), colors: v.colors == null ? true : bool(v.colors), bands: v.bands == null ? true : bool(v.bands),
     collapsed: (Array.isArray(v.collapsed) ? v.collapsed : []).map(pid).filter(Boolean).slice(0, LIMITS.collapsed)
   };
   d.poster = sPoster(raw.poster);
   d.rev = finite(+raw.rev, 0); d.created = finite(+raw.created, Date.now()); d.updated = finite(+raw.updated, Date.now());
   d.lastBackup = finite(+raw.lastBackup, 0); d.lastBackupRev = finite(+raw.lastBackupRev, 0);
+  // the families: this one's id and name, and the others (each checked like this one)
+  d.fid = typeof raw.fid === 'string' && ID_RE.test(raw.fid) ? raw.fid : d.fid;
+  d.fname = str(raw.fname, 60);
+  if (!nested && raw.others && typeof raw.others === 'object' && !Array.isArray(raw.others)) {
+    for (const [k, f] of Object.entries(raw.others).slice(0, MAX_FAMILIES - 1)) {
+      if (!ID_RE.test(k) || k === d.fid || has(d.others, k) || !f || typeof f !== 'object') continue;
+      d.others[k] = familyPart(sanitizeState(f, true));
+    }
+  }
   return d;
 }
 
@@ -154,8 +169,9 @@ export function sPoster(o) {
   o = o && typeof o === 'object' ? o : {};
   const out = {};
   for (const k of ['theme', 'layout', 'paper', 'orient', 'title', 'sub', 'root', 'kind']) if (typeof o[k] === 'string') out[k] = str(o[k], 120);
-  for (const k of ['photos', 'dates', 'spouses', 'dKids', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats']) if (o[k] != null) out[k] = bool(o[k]);
+  for (const k of ['photos', 'dates', 'spouses', 'dKids', 'women', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats']) if (o[k] != null) out[k] = bool(o[k]);
   for (const k of ['gens']) if (o[k] != null) out[k] = int(o[k], 0, 30, 0);
+  if (o.fromGen != null) out.fromGen = int(o.fromGen, 1, 30, 1);
   return out;
 }
 
@@ -286,6 +302,8 @@ export function replaceState(raw, { keepSettings = true } = {}) {
   const next = sanitizeState(raw);
   if (keepSettings) next.settings = { ...prev.settings, onboarded: true };
   next.settings.onboarded = true;
+  // only this family is replaced: the other families stay, and so does this one's place among them
+  next.others = prev.others; next.fid = prev.fid; next.fname = prev.fname || next.fname;
   return update(s => { Object.assign(s, next); }, { undo: 'restore' });
 }
 export const hasPerson = id => !!(id && has(state.value.people, id));

@@ -56,12 +56,13 @@ const PL = {
     page: [1, 'صفحة', 'صفحة', 'صفحتان', 'صفحات', 'صفحة', 'صفحة'],
     time: [1, 'مرة', 'مرة', 'مرتان', 'مرات', 'مرة', 'مرة'],
     wife: [1, 'زوجة', 'زوجة', 'زوجتان', 'زوجات', 'زوجة', 'زوجة'],
-    name: [0, 'اسم', 'اسم', 'اسمان', 'أسماء', 'اسماً', 'اسم']
+    name: [0, 'اسم', 'اسم', 'اسمان', 'أسماء', 'اسماً', 'اسم'],
+    family: [1, 'عائلة', 'عائلة', 'عائلتان', 'عائلات', 'عائلة', 'عائلة']
   },
   en: {
     person: ['person', 'people'], generation: ['generation', 'generations'], child: ['child', 'children'], year: ['year', 'years'],
     day: ['day', 'days'], male: ['male', 'males'], female: ['female', 'females'], marriage: ['marriage', 'marriages'], photo: ['photo', 'photos'],
-    page: ['page', 'pages'], time: ['time', 'times'], wife: ['wife', 'wives'], name: ['name', 'names']
+    page: ['page', 'pages'], time: ['time', 'times'], wife: ['wife', 'wives'], name: ['name', 'names'], family: ['family', 'families']
   }
 };
 const arRules = new Intl.PluralRules('ar');

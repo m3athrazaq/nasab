@@ -29,6 +29,8 @@ const { buildBook } = await import('../src/export/book.js');
 const { buildCertificate } = await import('../src/export/certificate.js');
 const { sceneToPdf, sceneToSvg } = await import('../src/chart/render.js');
 const { POSTER_THEMES } = await import('../src/chart/themes.js');
+const { layoutDescendants } = await import('../src/chart/layout.js');
+const { photosInUse } = await import('../src/core/photos.js');
 
 let fails = 0, passes = 0;
 function check(name, ok, detail = '') {
@@ -273,6 +275,115 @@ await section('prints', async () => {
     const C = buildCertificate(ix, demo, id, { theme: 'manuscript' }, env);
     check(`certificate for ${ix.P[id].n}`, C.scene.length > 10 && finite(C.scene));
   }
+});
+
+/* ---------------- order of brothers and sisters ---------------- */
+await section('children order', () => {
+  const by = ko => buildIndex({ ...demo, settings: { ...demo.settings, kidsOrder: ko } });
+  const names = (x, list) => list.map(id => x.P[id].n);
+  eq('eldest first (per mother)', names(by('old'), by('old').children('demom2')), ['راشد', 'منيرة', 'فهد', 'يوسف', 'عائشة']);
+  eq('youngest first (per mother)', names(by('young'), by('young').children('demom2')), ['فهد', 'منيرة', 'راشد', 'عائشة', 'يوسف']);
+  const y = by('young');
+  eq('youngest first across wives', names(y, y.order(y.children('demom2'))), ['عائشة', 'يوسف', 'فهد', 'منيرة', 'راشد']);
+  // children without a birth date keep their place; those with one are sorted among themselves
+  const raw = {
+    people: [
+      { id: 'pf01', n: 'أب', g: 'm' },
+      { id: 'pa01', n: 'أ', g: 'm', b: '1990', pu: 'u001', at: 1, ord: 2 },
+      { id: 'pb01', n: 'ب', g: 'm', pu: 'u001', at: 2, ord: 1 },
+      { id: 'pc01', n: 'ج', g: 'm', b: '1980', pu: 'u001', at: 3, ord: 3 },
+      { id: 'pd01', n: 'د', g: 'm', pu: 'u001', at: 4, ord: 4 }
+    ],
+    unions: [{ id: 'u001', h: 'pf01' }]
+  };
+  const st = sanitizeState(raw);
+  const k = ko => { const x = buildIndex({ ...st, settings: { kidsOrder: ko } }); return x.childrenOfUnion('u001').map(id => x.P[id].n).join(''); };
+  eq('as entered', k('manual'), 'بأجد');
+  eq('by age, undated keep their places', k('old'), 'بجأد');
+  eq('youngest first is the reverse', k('young'), 'دأجب');
+  eq('the setting is kept', sanitizeState({ settings: { kidsOrder: 'young' } }).settings.kidsOrder, 'young');
+  eq('an unknown setting falls back', sanitizeState({ settings: { kidsOrder: 'x' } }).settings.kidsOrder, 'old');
+});
+
+/* ---------------- what the tree shows: women, and a lower first generation ---------------- */
+await section('tree filters', () => {
+  const full = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true });
+  const men = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true, women: false });
+  check('without women no woman is drawn', men.nodes.every(n => ix.P[n.id].g !== 'f' || n.depth === 0) && full.nodes.some(n => ix.P[n.id].g === 'f'));
+  eq('without women the counts follow', men.nodes.length, [...generations(ix, 'demor1', { women: false }).keys()].length);
+  const sons = men.nodes.filter(n => n.parent === 'demom2').sort((a, b) => b.x - a.x).map(n => ix.P[n.id].n);
+  eq('sons of two wives in one row, eldest first (right to left)', sons, ['راشد', 'فهد', 'يوسف']);
+  const g = generations(ix, 'demor1');
+  const third = [...g].filter(([, v]) => v === 3).map(([id]) => id);
+  for (const mode of ['v', 'h', 'r']) {
+    const L3 = layoutDescendants(ix, 'demor1', { mode, dKids: true, fromGen: 3 });
+    const tops = L3.nodes.filter(n => !n.parent);
+    check(`${mode}: from generation 3, its people are the top row`, L3.virtual && tops.length === third.length && tops.every(n => third.includes(n.id)), `${tops.length} vs ${third.length}`);
+    check(`${mode}: nobody above generation 3`, L3.nodes.every(n => g.get(n.id) >= 3));
+    eq(`${mode}: generation numbers count from 3`, L3.genBase + 1, 3);
+    if (mode !== 'r') check(`${mode}: no lines from the invisible top`, L3.links.every(l => l.from));
+    else check('r: the boughs leave the trunk', L3.links.some(l => !l.from));
+    eq(`${mode}: each family of generation 3 has its own colour`, [...new Set(tops.map(n => n.branch))].length, tops.length);
+  }
+  const deep = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true, fromGen: 3, maxGen: 2 });
+  check('from generation 3, two generations', Math.max(...deep.nodes.map(n => g.get(n.id))) === 4);
+  check('a generation below the last gives nothing', layoutDescendants(ix, 'demor1', { mode: 'v', fromGen: 9 }).nodes.length === 0);
+});
+
+/* ---------------- more than one family ---------------- */
+await section('families', () => {
+  state.value = defaultState();
+  replaceState(demoState());
+  const first = state.value.fid;
+  const fid = A.addFamily();
+  check('a new family opens empty', fid && state.value.fid === fid && !Object.keys(state.value.people).length);
+  eq('the first family waits among the others', Object.keys(state.value.others[first].people).length, 52);
+  A.buildChain(['سعد', 'ناصر', 'حمد'], { family: 'العلي', me: false });
+  eq('the new family has its own people', Object.keys(state.value.people).length, 3);
+  eq('…and nobody is "me" there', state.value.me, '');
+  A.renameFamily(fid, 'عائلة أمي');
+  check('switching back', A.switchFamily(first) && Object.keys(state.value.people).length === 52 && state.value.me === 'demok4');
+  eq('the other family kept its name and people', [state.value.others[fid].fname, Object.keys(state.value.others[fid].people).length], ['عائلة أمي', 3]);
+  // stored and read again (a crafted entry is dropped)
+  const stored = JSON.parse(JSON.stringify(state.value));
+  stored.others.bad = { people: [{ id: 'xx01', n: 'x' }] };
+  stored.others['__proto__'] = { people: [] };
+  stored.others[fid].others = { nested1: { people: [{ id: 'yy01', n: 'y' }] } };
+  const back = sanitizeState(stored);
+  eq('families survive saving', Object.keys(back.others), [fid]);
+  check('no family inside a family', !back.others[fid].others);
+  // a restore replaces the open family only
+  replaceState({ people: [{ id: 'zz01', n: 'زيد', g: 'm' }] });
+  check('restoring keeps the other families', state.value.fid === first && state.value.others[fid] && Object.keys(state.value.people).length === 1);
+  undo();
+  eq('…and undo brings the family back', Object.keys(state.value.people).length, 52);
+  // photos in use in any family are kept when tidying
+  const withPhoto = sanitizeState({ ...JSON.parse(JSON.stringify(state.value)) });
+  withPhoto.others[fid].people = { ...withPhoto.others[fid].people, ph01: { ...Object.values(withPhoto.others[fid].people)[0], id: 'ph01', photo: 'abcd1234' } };
+  check('photos of the other families are kept', photosInUse(withPhoto).has('abcd1234'));
+  // deleting: the open family hands over to another; the last one cannot go
+  check('delete the open family', A.deleteFamily(first) && state.value.fid === fid && !Object.keys(state.value.others).length);
+  check('the last family cannot be deleted', !A.deleteFamily(fid));
+  undo();
+  check('undo brings a deleted family back', state.value.fid === first && !!state.value.others[fid]);
+});
+
+/* ---------------- a poster from a lower generation, without women ---------------- */
+await section('poster options', async () => {
+  const fontkit = require('@pdf-lib/fontkit');
+  const bidi = require('bidi-js')();
+  const fonts = {};
+  for (const [k, f] of Object.entries({ naskhB: 'NotoNaskhArabic-Bold', naskh: 'NotoNaskhArabic-Regular', ui: 'ReadexPro-Regular', uiB: 'ReadexPro-SemiBold', ruqaa: 'ArefRuqaa-Bold', amiri: 'Amiri-Regular', amiriB: 'Amiri-Bold', kufi: 'ReemKufi-Bold' })) fonts[k] = fs.readFileSync(path.join(ROOT, 'fonts/pdf', f + '.ttf'));
+  const engine = createTextEngine({ fontkit, bidi, fonts, dir: 'rtl' });
+  const env = { measure: engine.measure.bind(engine), photoIds: new Set() };
+  const texts = P => JSON.stringify(P.scene);
+  for (const mode of ['v', 'h', 'r']) {
+    const P = buildPoster(ix, demo, { mode, theme: 'sadu', paper: 'A3', root: 'demor1', fromGen: 3, women: false }, env);
+    check(`${mode}: poster from generation 3 without women`, P && P.scene.length > 10 && texts(P).includes('من الجيل الثالث') && !texts(P).includes('أنثى'));
+  }
+  const R = buildPoster(ix, demo, { mode: 'r', theme: 'palm', paper: 'A3', root: 'demor1', fromGen: 2 }, env);
+  check('canopy from generation 2: the family on the trunk', texts(R).includes('الراشد'));
+  check('no poster when the generation is empty', buildPoster(ix, demo, { mode: 'v', theme: 'sadu', paper: 'A3', root: 'demor1', fromGen: 9 }, env) === null);
 });
 
 console.log(fails ? `FAIL ${fails} of ${passes + fails} checks` : `PASS all ${passes} checks`);

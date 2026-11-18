@@ -17,8 +17,23 @@ export function buildIndex(s) {
   for (const id in P) { const pu = P[id].pu; if (pu && kids.has(pu)) kids.get(pu).push(id); }
   const birth = id => sortKeyD(P[id].b);
   const ordv = v => (v ? v : Infinity);
+  // the order the children were put in (moved by hand, else by birth, else as they were added)
   const childOrder = (a, b) => cmp(ordv(P[a].ord), ordv(P[b].ord)) || cmp(birth(a), birth(b)) || cmp(P[a].at || 0, P[b].at || 0) || cmp(a, b);
-  for (const list of kids.values()) list.sort(childOrder);
+  const kidsOrder = (s.settings && s.settings.kidsOrder) || 'old';
+  /**
+   * brothers and sisters in the order the settings ask for: by age (eldest or youngest first) or as
+   * entered. By age, those with a known birth date are sorted among themselves and those without one
+   * keep their place, so a family entered in order without dates stays in order.
+   */
+  function order(list) {
+    const base = [...list].sort(childOrder);
+    if (kidsOrder === 'manual') return base;
+    const dated = base.filter(id => isFinite(birth(id))).sort((a, b) => cmp(birth(a), birth(b)) || cmp(base.indexOf(a), base.indexOf(b)));
+    let k = 0;
+    const out = base.map(id => (isFinite(birth(id)) ? dated[k++] : id));
+    return kidsOrder === 'young' ? out.reverse() : out;
+  }
+  for (const [u, list] of kids) kids.set(u, order(list));
   const firstBirth = uid => { const k = kids.get(uid); return k && k.length ? Math.min(...k.map(birth)) : Infinity; };
   const unionOrder = (a, b) => cmp(ordv(U[a].ord), ordv(U[b].ord)) || cmp(sortKeyD(U[a].md), sortKeyD(U[b].md)) || cmp(firstBirth(a), firstBirth(b)) || cmp(U[a].at || 0, U[b].at || 0) || cmp(a, b);
   for (const list of unionsOf.values()) list.sort(unionOrder);
@@ -102,7 +117,7 @@ export function buildIndex(s) {
   return {
     P, U, kids, unionsOf, person, father, mother, unions, partnerIn, spouses, children, childrenOfUnion, siblings,
     paternalLine, familyOf, ancestors, descendants, isAncestorOf, founderOf, tops, defaultRoot, living, unionOfChild,
-    count: Object.keys(P).length
+    order, kidsOrder, count: Object.keys(P).length
   };
 }
 
@@ -139,8 +154,11 @@ export function searchPeople(ix, q, limit = 200) {
   return out.slice(0, limit).map(x => x.id);
 }
 
-/** generation of everyone below a root (root = 1), following children through all unions */
-export function generations(ix, root, { daughtersKids = true } = {}) {
+/**
+ * generation of everyone below a root (root = 1), following children through all unions; the same rules
+ * as the drawn tree: daughters' children only with daughtersKids, no women at all without women
+ */
+export function generations(ix, root, { daughtersKids = true, women = true } = {}) {
   const gen = new Map();
   if (!root || !ix.P[root]) return gen;
   gen.set(root, 1);
@@ -149,7 +167,10 @@ export function generations(ix, root, { daughtersKids = true } = {}) {
     const next = [];
     for (const x of frontier) {
       if (!daughtersKids && ix.P[x].g === 'f' && x !== root) continue;
-      for (const c of ix.children(x)) if (!gen.has(c)) { gen.set(c, gen.get(x) + 1); next.push(c); }
+      for (const c of ix.children(x)) {
+        if (!women && ix.P[c].g === 'f') continue;
+        if (!gen.has(c)) { gen.set(c, gen.get(x) + 1); next.push(c); }
+      }
     }
     frontier = next;
   }

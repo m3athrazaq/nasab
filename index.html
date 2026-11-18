@@ -144,6 +144,7 @@ nav.tabs button[aria-current="page"]::before {
 .section { margin-top: 26px; }
 .section > h2, h2.sec { font-size: 16.5px; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; gap: 8px; }
 .section > h2 .aside, h2.sec .aside { margin-inline-start: auto; font-size: 13.5px; font-weight: 500; color: var(--madder); background: none; border: 0; padding: 4px 0; }
+.section .subh { font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 16px 0 8px; }
 .lead { font-size: 15px; color: var(--ink-2); margin: 4px 0 0; }
 
 /* ---------- surfaces ---------- */
@@ -160,8 +161,17 @@ button.row:active, a.row:active { background: var(--paper-2); }
 .row .title { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .title.nm { font-family: var(--naskh); font-weight: 700; font-size: 17px; line-height: 1.5; }
 .row .meta { font-size: 13px; color: var(--ink-2); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .meta.wrap2 { white-space: normal; line-height: 1.5; }
 .row .end { color: var(--ink-3); font-size: 13.5px; flex: none; display: flex; align-items: center; gap: 6px; }
 .row .chev { width: 18px; height: 18px; color: var(--ink-3); flex: none; }
+/* families */
+.row.fam { padding: 0; padding-inline-end: 6px; gap: 0; }
+.row.fam .famopen { display: flex; align-items: center; gap: 12px; padding: 11px 16px; min-height: 62px; border: 0; background: none; color: inherit; text-align: start; font: inherit; }
+.row.fam .famopen:active { background: var(--paper-2); }
+.row.fam .title.naskh { font-family: var(--naskh); font-weight: 700; font-size: 17px; line-height: 1.5; }
+.famdot { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; flex: none; color: var(--ink-2); background: var(--paper-2); }
+.famdot.on { color: var(--paper); background: var(--madder); }
+.famdot svg { width: 20px; height: 20px; }
 .group-h { display: flex; align-items: baseline; gap: 8px; padding: 20px 4px 8px; font-weight: 600; font-size: 14.5px; color: var(--ink-2); }
 .group-h .aside { margin-inline-start: auto; font-weight: 500; font-size: 13px; color: var(--ink-3); }
 
@@ -230,6 +240,7 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 .toggle[aria-checked="true"] .switch::after { inset-inline-start: 21px; }
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
+.chips.wrap { flex-wrap: wrap; overflow: visible; }
 .chip { border: 1.5px solid var(--rule); background: var(--sheet); color: var(--ink-2); border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 500; white-space: nowrap; flex: none; }
 .chip[aria-pressed="true"] { background: var(--btn); border-color: var(--btn); color: var(--btn-ink); }
 .search { display: flex; align-items: center; gap: 8px; background: var(--sheet); border-radius: 14px; padding: 0 14px; min-height: 48px; box-shadow: var(--shadow); }
@@ -293,6 +304,8 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 .acts button svg { width: 22px; height: 22px; color: var(--ink-2); }
 .acts button.main { background: var(--btn); color: var(--btn-ink); }
 .acts button.main svg { color: var(--btn-ink); }
+.acts button.danger { color: var(--madder); }
+.acts button.danger svg { color: var(--madder); }
 
 /* person page */
 .phead { text-align: center; padding: 8px 0 4px; }
@@ -406,6 +419,6 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 <body>
 <div id="app"><div class="boot" role="status" aria-live="polite"><div class="boot-mark">نَسَب</div></div></div>
 <noscript><p style="padding:24px">يحتاج «نَسَب» إلى تفعيل JavaScript.</p></noscript>
-<script src="app.js?v=4bf3483e848a" integrity="sha384-pIU2+bo1g2kYapE7sfUrXGOVaGRtmdoOYvVnkHV5/ScikEhtwEqErd64lIAeGh4u"></script>
+<script src="app.js?v=aa5dbd7016ec" integrity="sha384-SYhVkCV/JZZOXti5+nnV/zzoshyLsxr4NhBAW0yiIrCMMJUNv+V4OJCqBA5PJEzP"></script>
 </body>
 </html>

@@ -8,18 +8,26 @@ import { bufToB64, esc } from '../core/util.js';
 import { photoJpegBytes } from '../core/photos.js';
 import { defaultTitles } from './poster.js';
 
-export async function exportHtml(s, { photos = true, hideLiving = true, notes = true, dKids = false } = {}) {
+export async function exportHtml(s, { photos = true, hideLiving = true, notes = true, dKids = false, women = true } = {}) {
   const ix = buildIndex(s);
   const root = s.root && ix.P[s.root] ? s.root : ix.defaultRoot(s.me);
   if (!root) throw new Error('empty');
   const L = lang.value;
+  // brothers and sisters in the app's order, as positions (birth dates of the living may be hidden):
+  // o = place among the children of the same parents, r = place among all the father's children
+  const pos = {}, rank = {};
+  for (const u of Object.keys(ix.U)) ix.childrenOfUnion(u).forEach((c, i) => { pos[c] = i + 1; });
+  for (const id of Object.keys(ix.P)) {
+    const kids = ix.children(id);
+    if (kids.length && ix.P[id].g !== 'f') ix.order(kids).forEach((c, i) => { rank[c] = i + 1; });
+  }
   const people = {};
   for (const [id, p] of Object.entries(ix.P)) {
     const dead = !ix.living(id);
     const show = !(hideLiving && !dead);
     const mw = dead && L === 'ar' && s.settings.mercy ? mercy(p.g) : '';
     people[id] = {
-      n: p.n, g: p.g, i: initial(p.n || '؟'), pu: p.pu, o: p.ord || 0, at: p.at, fam: p.fam,
+      n: p.n, g: p.g, i: initial(p.n || '؟'), pu: p.pu, o: pos[id] || 0, r: rank[id] || 0, at: p.at, fam: p.fam,
       dead, y: show ? lifeYears(p, dead && !p.d ? mw : '') : (dead ? mw : ''), mercy: mw,
       bk: show ? p.b : '', dk: p.d,
       b: show ? fmtDate(p.b) : '', d: fmtDate(p.d), bp: show ? p.bp : '', dp: p.dp, job: p.job,
@@ -34,7 +42,7 @@ export async function exportHtml(s, { photos = true, hideLiving = true, notes = 
   const unions = {};
   for (const [id, u] of Object.entries(ix.U)) unions[id] = { id, h: u.h, w: u.w, st: u.st, md: u.md, ord: u.ord };
   const titles = defaultTitles(ix, root);
-  const data = { v: 1, lang: L, title: (titles.head ? titles.head + ' ' : '') + titles.title, sub: titles.sub, root, me: '', dKids, people, unions };
+  const data = { v: 1, lang: L, title: (titles.head ? titles.head + ' ' : '') + titles.title, sub: titles.sub, root, me: '', dKids, women, people, unions };
   const viewer = await fetch('vendor/viewer.js', { cache: 'force-cache', integrity: __VIEWER_SRI__ }).then(r => { if (!r.ok) throw new Error('viewer'); return r.text(); });
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = TEMPLATE

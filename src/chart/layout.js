@@ -14,27 +14,53 @@ export const METRICS = {
 /**
  * the descendants of root as a nested structure, following the view's rules:
  * - a daughter's children show only with dKids (the tree follows the father's line by default)
+ * - without women (women: false) daughters are left out, and a man's children by all his wives make one
+ *   row in age order
  * - collapsed people hide their descendants (the count is kept for a "+N" badge)
  * - someone reached twice (cousins married) is drawn once in full, then as a reference
+ * - fromGen > 1 starts lower: the people of that generation side by side under an invisible top
+ *   ({ virtual: true }), each with its own branch colour; maxGen counts the generations shown
  */
-export function descendantData(ix, root, { dKids = false, collapsed = new Set(), maxGen = 0 } = {}) {
+export function descendantData(ix, root, { dKids = false, women = true, collapsed = new Set(), maxGen = 0, fromGen = 1 } = {}) {
+  if (!root || !ix.P[root]) return null;
   const placed = new Set();
-  const countBelow = id => ix.descendants(id).size;
+  const skip = fromGen > 1 ? fromGen - 1 : 0;
+  const shown = c => women || ix.P[c].g !== 'f';
+  const kidsOf = id => {
+    if (women) return ix.unions(id).flatMap(u => ix.childrenOfUnion(u).map(c => [c, u]));
+    return ix.order(ix.children(id)).filter(shown).map(c => [c, ix.P[c].pu]);
+  };
+  const follows = (id, depth) => depth === 0 || ix.P[id].g !== 'f' || dKids;
+  // how many are below someone, by the same rules (for the "+N" of a folded branch)
+  const countBelow = id => {
+    const seen = new Set([id]); const stack = [[id, 0]]; let n = 0;
+    while (stack.length) {
+      const [x, d] = stack.pop();
+      if (!follows(x, d)) continue;
+      for (const [c] of kidsOf(x)) if (!seen.has(c)) { seen.add(c); n++; stack.push([c, d + 1]); }
+    }
+    return n;
+  };
   function make(id, depth, branch, union) {
-    const p = ix.P[id];
     const node = { id, depth, branch, union, children: [] };
     if (placed.has(id)) { node.dup = true; return node; }
     placed.add(id);
-    const follow = depth === 0 || p.g !== 'f' || dKids;
-    let kids = [];
-    if (follow) for (const u of ix.unions(id)) for (const c of ix.childrenOfUnion(u)) kids.push([c, u]);
-    if (kids.length && ((maxGen && depth + 1 >= maxGen) || collapsed.has(id))) { node.hidden = countBelow(id); kids = []; }
-    node.hiddenKids = !follow ? ix.children(id).length : 0;
+    const follow = follows(id, depth);
+    let kids = follow ? kidsOf(id) : [];
+    if (kids.length && ((maxGen && depth + 1 >= skip + maxGen) || (depth >= skip && collapsed.has(id)))) { node.hidden = countBelow(id); kids = []; }
+    node.hiddenKids = !follow ? ix.children(id).filter(shown).length : 0;
     node.children = kids.map(([c, u], i) => make(c, depth + 1, depth === 0 ? i : branch, u));
     return node;
   }
-  if (!root || !ix.P[root]) return null;
-  return make(root, 0, -1, '');
+  const full = make(root, 0, -1, '');
+  if (!skip) return full;
+  // the people of generation fromGen, in the tree's order, each a branch of its own
+  const tops = [];
+  const walk = n => { if (n.depth === skip) { if (!n.dup) tops.push(n); return; } n.children.forEach(walk); };
+  walk(full);
+  const recolor = (n, b) => { n.branch = b; n.children.forEach(c => recolor(c, b)); };
+  tops.forEach((n, i) => recolor(n, i));
+  return { id: '', virtual: true, depth: skip - 1, branch: -1, union: '', children: tops };
 }
 
 /** one person's card: what is shown decides its height (names, years, spouse line) */
@@ -59,7 +85,8 @@ export function layoutDescendants(ix, root, opts = {}) {
   if (mode === 'v' || mode === 'h') {
     const box = nodeBox(mode, M, opts);
     const breadth = mode === 'v' ? M.w : M.h;
-    const t = tree().nodeSize([1, 1]).separation((a, b) => breadth + (a.parent === b.parent ? M.gapSib : M.gapCousin));
+    // the families of a generation side by side (under an invisible top) stand a little further apart
+    const t = tree().nodeSize([1, 1]).separation((a, b) => breadth + (a.parent === b.parent ? (a.parent && a.parent.data.virtual ? M.gapCousin * 1.6 : M.gapSib) : M.gapCousin));
     t(h);
     const rtl = opts.rtl !== false;
     h.each(n => {
@@ -72,13 +99,14 @@ export function layoutDescendants(ix, root, opts = {}) {
     let k = 0;
     h.each(n => {
       const d = n.data;
-      const key = d.dup ? d.id + '#' + (k++) : d.id;
+      const key = d.virtual ? '' : d.dup ? d.id + '#' + (k++) : d.id;
       d.key = key;
-      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent ? n.parent.data.key : null });
+      if (d.virtual) return;
+      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null });
     });
     const r = M.corner || 10;
     h.each(n => {
-      if (!n.parent) return;
+      if (!n.parent || n.parent.data.virtual) return;
       const a = n.parent, b = n;
       let d;
       if (mode === 'v') {
@@ -97,7 +125,7 @@ export function layoutDescendants(ix, root, opts = {}) {
     const groups = [];
     if (mode === 'v' && opts.spouses) {
       h.each(n => {
-        if (!n.children || n.children.length < 1) return;
+        if (!n.children || n.children.length < 1 || n.data.virtual) return;
         const byU = new Map();
         for (const c of n.children) { if (!byU.has(c.data.union)) byU.set(c.data.union, []); byU.get(c.data.union).push(c); }
         if (byU.size < 2) return;
@@ -108,7 +136,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       });
     }
     const b = bounds(nodes, mode === 'v' ? { l: M.w / 2 + 4, r: M.w / 2 + 4, t: box.top + 4, b: box.bottom + 18 } : { l: M.w / 2 + 6, r: M.w / 2 + 6, t: M.h / 2 + 4, b: M.h / 2 + 14 });
-    return { mode, M, box, nodes, links, groups, bounds: b, rtl };
+    return { mode, M, box, nodes, links, groups, bounds: b, rtl, ...generationInfo(data) };
   }
   if (mode === 'r') {
     const span = opts.span || 200; // degrees of the canopy
@@ -126,11 +154,12 @@ export function layoutDescendants(ix, root, opts = {}) {
     let k = 0;
     h.each(n => {
       const d = n.data;
-      const key = d.dup ? d.id + '#' + (k++) : d.id;
+      const key = d.virtual ? '' : d.dup ? d.id + '#' + (k++) : d.id;
       d.key = key;
+      if (d.virtual) return; // the trunk stands where the top would be
       // reading direction of the name: along the radius, flipped on the left half so it is never upside down
       let ang = Math.atan2(n.py, n.px) * 180 / Math.PI;
-      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent ? n.parent.data.key : null, ang });
+      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null, ang });
     });
     h.each(n => {
       if (!n.parent) return;
@@ -142,6 +171,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       const c1x = a.depth === 0 ? a.px : (a.px / (ra || 1)) * c1r, c1y = a.depth === 0 ? a.py - M.ring * 0.5 : (a.py / (ra || 1)) * c1r;
       const c2x = Math.cos(ang) * (ra + (rb - ra) * 0.45), c2y = Math.sin(ang) * (ra + (rb - ra) * 0.45);
       const d = `M${f(a.px)} ${f(a.py)}C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(b.px)} ${f(b.py)}`;
+      // (from the invisible top: the boughs leave the top of the trunk)
       links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union, w: Math.max(1.2, 7 - b.depth * 1.3) });
     });
     // bounds: every seal and the end of its name along the branch, the trunk and the ground
@@ -154,9 +184,14 @@ export function layoutDescendants(ix, root, opts = {}) {
         x0 = Math.min(x0, px - 8); x1 = Math.max(x1, px + 8); y0 = Math.min(y0, py - 8); y1 = Math.max(y1, py + 8);
       }
     }
-    return { mode, M, nodes, links, groups: [], bounds: { x0, y0, x1, y1 }, rtl: opts.rtl !== false };
+    return { mode, M, nodes, links, groups: [], bounds: { x0, y0, x1, y1 }, rtl: opts.rtl !== false, ...generationInfo(data) };
   }
   return null;
+}
+/** which generation the first drawn row is (bands and titles count from there) */
+function generationInfo(data) {
+  // a tree drawn from its top: row 0 is generation 1; from an invisible top at depth k-1: row 1 is generation k
+  return data.virtual ? { virtual: true, genBase: data.depth + 1, firstRow: 1 } : { virtual: false, genBase: 1, firstRow: 0 };
 }
 
 /* elbow connectors with rounded corners */
