@@ -137,8 +137,8 @@ export function buildBook(ix, s, opts, env) {
     const all = [...gens.keys()];
     const living = all.filter(id => ix.living(id)).length;
     const intro = ar
-      ? `يضم هذا الكتاب ذرية ${p.n} كما سُجّلت في تطبيق نَسَب: ${count(all.length, 'person')} في ${count(Math.max(1, ...gens.values()), 'generation')}، الأحياء منهم ${num(living)}. تجد فيه الشجرة كاملة، ثم كل فرع من فروعها في صفحته، ثم سِيَر الأفراد وتواريخهم بالتقويمين، وفي آخره فهرس الأسماء.`
-      : `This book holds the descendants of ${p.n} as recorded in Nasab: ${count(all.length, 'person')} in ${count(Math.max(1, ...gens.values()), 'generation')}, ${num(living)} of them living. It has the whole tree, each branch on its own page, everyone's life details, and an index of names.`;
+      ? `يضم هذا الكتاب ذرية ${p.n}: ${count(all.length, 'person')} في ${count(Math.max(1, ...gens.values()), 'generation')}، الأحياء منهم ${num(living)}. تجد فيه الشجرة كاملة، ثم كل فرع من فروعها في صفحته، ثم سِيَر الأفراد وتواريخهم بالتقويمين، وفي آخره فهرس الأسماء.`
+      : `This book holds the descendants of ${p.n}: ${count(all.length, 'person')} in ${count(Math.max(1, ...gens.values()), 'generation')}, ${num(living)} of them living. It has the whole tree, each branch on its own page, everyone's life details, and an index of names.`;
     wr.para(intro, th.fonts.text, 11.5, th.ink2, { lead: 1.95 });
     wr.space(16);
     contents.push({ wr, y: wr.y, items: wr.items });

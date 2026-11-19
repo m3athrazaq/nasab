@@ -4,7 +4,7 @@
 // Prints one PASS/FAIL line per check, and "PASS no JS errors" when no page had a script error.
 // Covers: first start from a typed full name, saving across reloads, every screen in Arabic and English
 // and all four tree shapes, adding children and Undo, deleting from the tree, the women filter, the order
-// of children, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
+// of children (the app's, and one father's from his card), the table of generations, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
 // certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone" and as a
 // new family,
 // broken and crafted files, the PIN lock, offline use, and refusing to run inside a frame.
@@ -191,6 +191,22 @@ let browser;
     check(before && after && s.settings.kidsOrder === 'young', 'children follow the order chosen: eldest first, then youngest first');
     await page.keyboard.press('Escape');
     await page.locator('.sheet .x, .sheet [aria-label="' + AR.close + '"]').first().click().catch(() => {});
+    // one father's own order, from his card in the tree, while the app's stays youngest first
+    await tap('demom2');
+    await page.locator('.acts button', { hasText: AR.act_kids_order }).click();
+    await page.locator('.sheet .seg button', { hasText: AR.kids_old }).click();
+    await page.waitForTimeout(700);
+    s = await stored(page);
+    const his = st => Object.values(st.unions).filter(u => u.h === 'demom2');
+    const eldest = (await xOf('demor3')) > (await xOf('demof3'));
+    check(his(s).length > 0 && his(s).every(u => u.ko === 'old') && s.settings.kidsOrder === 'young' && eldest, 'one father\'s children eldest first, chosen from his card, while the app stays youngest first');
+    const firstName = await page.locator('.list.ko .row .title').first().textContent();
+    await page.locator('.list.ko').first().locator('.row').nth(1).locator('.iconbtn').first().click();
+    await settle(page);
+    s = await stored(page);
+    const nowFirst = await page.locator('.list.ko .row .title').first().textContent();
+    check(his(s).every(u => u.ko === 'manual') && nowFirst !== firstName, `a child moved up by hand (${firstName} → ${nowFirst})`);
+    await page.getByRole('button', { name: AR.done, exact: true }).click();
     // a second family from a full name, then back
     await go(page, 'tree');
     await page.locator('.tree-title').click();
@@ -245,6 +261,32 @@ let browser;
     check(s.poster.fromGen === 3 && s.poster.women === false, 'the poster remembers where it starts');
     await ctx.close();
   }
+  {
+    // the table of generations (like a family table kept in a spreadsheet): one long page, then A4 pages
+    const { ctx, page } = await open({ state: sample });
+    await page.goto(BASE + '#/poster');
+    await tabs(page);
+    await page.waitForTimeout(2000);
+    await page.locator('.seg button', { hasText: AR.mode_g }).click();
+    await page.locator(`input[placeholder="${AR.title_by_ph}"]`).fill('سالم');
+    await page.waitForTimeout(1800);
+    const one = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'table.pdf');
+    check(one.buf.subarray(0, 5).toString('latin1') === '%PDF-' && (await pdfPages(one.buf)) === 1, `the table of generations as one long page (${one.buf.length} bytes)`);
+    await page.locator('.chips .chip', { hasText: 'A4' }).click();
+    await page.locator('.seg button', { hasText: AR.landscape }).click();
+    await page.waitForTimeout(1800);
+    const told = await page.locator('.hint', { hasText: AR.table_pages.split('{')[0].trim() }).count();
+    const a4 = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'table-a4.pdf');
+    const n = await pdfPages(a4.buf);
+    check(n >= 2 && told > 0, `on A4 the table runs over pages, and says so (${n})`);
+    const img = await download(page, () => page.locator('.btns .btn', { hasText: AR.image }).first().click(), 'table.png');
+    const [w, h] = [img.buf.readUInt32BE(16), img.buf.readUInt32BE(20)];
+    check(img.buf.subarray(1, 4).toString('latin1') === 'PNG' && h > w, `the table as one long image (${w}×${h})`);
+    await settle(page);
+    const s = await stored(page);
+    check(s.poster.layout === 'g' && s.poster.gpaper === 'A4' && s.poster.by === 'سالم', 'the table remembers its paper and who prepared it');
+    await ctx.close();
+  }
 
   /* ---------- 4. every export ---------- */
   const xlsx = path.join(TMP, 'backup.xlsx');
@@ -284,6 +326,7 @@ let browser;
     d = await download(page, () => page.locator('.sheet .btn.wide').click(), 'tree.html', 30000);
     const html = d.buf.toString('utf8');
     check(html.includes('<!doctype html') && html.includes('NASAB_DATA') && !/"tel"\s*:\s*"[^"]/.test(html), `interactive HTML file (${d.buf.length} bytes, no phone numbers)`);
+    check(!html.includes('صُنعت بتطبيق') && !html.includes('Made with Nasab'), 'the interactive file carries no app credit');
     d = await download(page, () => page.getByText(AR.backup_make, { exact: true }).click(), 'backup.xlsx', 60000);
     fs.copyFileSync(d.file, xlsx);
     check(d.buf.subarray(0, 2).toString('latin1') === 'PK' && d.buf.length > 8000, `Excel backup (${d.buf.length} bytes)`);

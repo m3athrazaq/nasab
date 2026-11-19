@@ -28,7 +28,7 @@ export function descendantData(ix, root, { dKids = false, women = true, collapse
   const shown = c => women || ix.P[c].g !== 'f';
   const kidsOf = id => {
     if (women) return ix.unions(id).flatMap(u => ix.childrenOfUnion(u).map(c => [c, u]));
-    return ix.order(ix.children(id)).filter(shown).map(c => [c, ix.P[c].pu]);
+    return ix.orderedChildren(id).filter(shown).map(c => [c, ix.P[c].pu]);
   };
   const follows = (id, depth) => depth === 0 || ix.P[id].g !== 'f' || dKids;
   // how many are below someone, by the same rules (for the "+N" of a folded branch)

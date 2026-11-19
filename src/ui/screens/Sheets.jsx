@@ -1,10 +1,10 @@
 // The person's card (tap in the tree) and the quick forms that add relatives in a few taps.
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { state, undo } from '../../core/store.js';
-import { addChildren, addParent, addSpouse, addSibling, addPerson, setRoot, toggleCollapsed, setView, editUnion, deletePerson, branchOf } from '../../core/actions.js';
-import { t, count, lang } from '../../core/i18n.js';
+import { addChildren, addParent, addSpouse, addSibling, addPerson, setRoot, toggleCollapsed, setView, editUnion, deletePerson, branchOf, setKidsOrder, arrangeKids } from '../../core/actions.js';
+import { t, count, num, lang } from '../../core/i18n.js';
 import { guessGender, parseChain, cleanName } from '../../core/names.js';
-import { IX, personSheet, addSheet, openAdd, pickPerson, focusOn } from '../app-state.js';
+import { IX, personSheet, addSheet, kidsOrderSheet, openAdd, pickPerson, focusOn } from '../app-state.js';
 import { go } from '../router.js';
 import { Icon } from '../icons.jsx';
 import { Sheet, Seal, toast, DateInput, Seg, confirmDialog } from '../kit.jsx';
@@ -58,6 +58,7 @@ export function PersonSheet() {
         <button class="main" onClick={act(() => go('person/' + id))}><Icon name="user" />{t('act_profile')}</button>
         <button onClick={act(() => go('edit/' + id))}><Icon name="edit" />{t('edit')}</button>
         <button onClick={act(() => openAdd('children', id))}><Icon name="plus" />{t('act_children')}</button>
+        {ix.children(id).length > 1 && <button onClick={act(() => { kidsOrderSheet.value = id; })}><Icon name="sort" />{t('act_kids_order')}</button>}
         <button onClick={act(() => openAdd('spouse', id))}><Icon name="rings" />{p.g === 'f' ? t('act_husband') : t('act_wife')}</button>
         {!ix.father(id) && <button onClick={act(() => openAdd('father', id))}><Icon name="up" />{t('act_father')}</button>}
         {!ix.mother(id) && <button onClick={act(() => openAdd('mother', id))}><Icon name="up" />{t('act_mother')}</button>}
@@ -68,6 +69,56 @@ export function PersonSheet() {
         <button onClick={act(() => go('relation?a=' + id))}><Icon name="link" />{t('act_relation')}</button>
         <button class="danger" onClick={() => askDelete(id)}><Icon name="trash" />{t('delete')}</button>
       </div>
+    </Sheet>
+  );
+}
+
+/**
+ * the order of one person's children: eldest first, youngest first, or as he arranges them. The
+ * arrows move someone earlier or later (and switch to "my order", starting from what is shown).
+ * Kept on his marriages: the tree, the lists, the prints and the shared file follow it.
+ */
+export function KidsOrderSheet() {
+  const id = kidsOrderSheet.value;
+  if (!id) return null;
+  const s = state.value, ix = IX.value, p = ix.P[id];
+  const close = () => { kidsOrderSheet.value = null; };
+  if (!p) { setTimeout(close, 0); return null; }
+  const unions = ix.unions(id).filter(u => ix.childrenOfUnion(u).length);
+  const groups = unions.map(u => ix.childrenOfUnion(u));
+  const mode = ix.kidsOrderOf(id), app = s.settings.kidsOrder;
+  const move = (gi, k, dir) => {
+    const g = groups.map(x => [...x]);
+    const list = g[gi], i = list.indexOf(k), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    arrangeKids(id, g);
+  };
+  return (
+    <Sheet onClose={close} title={t('ko_title', { name: p.n || '؟' })}>
+      <Seg value={mode} onChange={m => setKidsOrder(id, m, m === 'manual' ? groups : null)} options={[['old', t('kids_old')], ['young', t('kids_young')], ['manual', t('kids_mine')]]} label={t('kids_order')} />
+      <p class="hint">{mode === 'manual' ? t('ko_hint_mine') : t('ko_hint_age')}</p>
+      {groups.map((list, gi) => {
+        const other = ix.partnerIn(unions[gi], id);
+        return (
+          <div key={unions[gi]}>
+            {groups.length > 1 && <div class="group-h">{t(p.g === 'f' ? 'ko_kids_of_f' : 'ko_kids_of', { name: other ? nameOf(other) : t('ko_kids_unknown') })}</div>}
+            <div class="list ko" style={groups.length > 1 ? '' : 'margin-top:12px'}>
+              {list.map((k, i) => (
+                <div class="row" key={k}>
+                  <span class="kn">{num(i + 1)}</span>
+                  <Seal id={k} size="sm" />
+                  <span class="grow"><span class="title nm">{nameOf(k)}</span>{yearsOf(k) && <span class="meta">{yearsOf(k)}</span>}</span>
+                  <button class="iconbtn" disabled={i === 0} onClick={() => move(gi, k, -1)} aria-label={t('move_up') + ': ' + nameOf(k)}><Icon name="up" /></button>
+                  <button class="iconbtn" disabled={i === list.length - 1} onClick={() => move(gi, k, 1)} aria-label={t('move_down') + ': ' + nameOf(k)}><Icon name="down" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {ix.ownKidsOrder(id) && mode !== app && <button class="btn ghost wide" style="margin-top:12px" onClick={() => setKidsOrder(id, '')}>{t('ko_app', { mode: t(app === 'manual' ? 'kids_manual' : 'kids_' + app) })}</button>}
+      <button class="btn wide" style="margin-top:12px" onClick={close}><Icon name="check" />{t('done')}</button>
     </Sheet>
   );
 }

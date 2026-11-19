@@ -1,6 +1,6 @@
 // Everything that changes the family: adding people and relations, editing, deleting, merging.
 // Each action is one step the user can undo.
-import { state, update, clearUndo, pruneUnions, breakLoops, sPerson, sUnion, sPoster, sanitizeState, familyPart, defaultView, PERSON_FIELDS, ID_RE, MAX_FAMILIES, str } from './store.js';
+import { state, update, clearUndo, pruneUnions, breakLoops, sPerson, sUnion, sPoster, sanitizeState, familyPart, defaultView, PERSON_FIELDS, ID_RE, MAX_FAMILIES, KIDS_ORDERS, str } from './store.js';
 import { uid } from './util.js';
 import { sortKeyD } from './dates.js';
 import { cleanName, guessGender } from './names.js';
@@ -299,6 +299,38 @@ export function moveChild(childId, dir, orderedIds) {
     [list[i], list[j]] = [list[j], list[i]];
     list.forEach((k, n) => setP(s, k, { ord: n + 1 }));
   }, { undo: 'edit' });
+}
+
+/**
+ * how a person's children are ordered: eldest first, youngest first, or as arranged by hand ('manual');
+ * '' follows the app's setting. Kept on each of his marriages, so the mother's card shows the same.
+ * groups (the children of each marriage, in the order shown now) make "by hand" start from what is
+ * on the screen, so nobody jumps.
+ */
+export function setKidsOrder(personId, mode, groups = null) {
+  update(s => {
+    const us = unionsOfIn(s, personId);
+    if (!us.length || !['', ...KIDS_ORDERS].includes(mode)) return false;
+    draft(s);
+    for (const u of us) setU(s, u, { ko: mode });
+    if (mode === 'manual' && groups) numberKids(s, us, groups);
+  }, { undo: 'edit' });
+}
+/** a person's children put in this order by hand (groups: one list per marriage, in order) */
+export function arrangeKids(personId, groups) {
+  update(s => {
+    const us = unionsOfIn(s, personId);
+    if (!us.length) return false;
+    draft(s);
+    for (const u of us) setU(s, u, { ko: 'manual' });
+    numberKids(s, us, groups);
+  }, { undo: 'edit' });
+}
+/** numbers the children 1, 2, 3… across all the person's marriages (one order for all his children) */
+function numberKids(s, us, groups) {
+  const mine = new Set(us);
+  let n = 0;
+  for (const g of groups) for (const k of g) if (s.people[k] && mine.has(s.people[k].pu) && n < 999) setP(s, k, { ord: ++n });
 }
 
 /* ---------------- deleting and merging ---------------- */

@@ -11,8 +11,8 @@ const D = window.NASAB_DATA;
 const ar = D.lang === 'ar';
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const T = ar ? { gen: n => 'الجيل ' + n, search: 'ابحث عن اسم…', none: 'لا نتائج', born: 'الميلاد', died: 'الوفاة', parents: 'الوالدان', spouses: 'الزواج', children: 'الأبناء', siblings: 'الإخوة', v: 'عمودي', h: 'أفقي', made: 'صُنعت بتطبيق نَسَب', job: 'المهنة', place: 'المكان', close: 'إغلاق', fit: 'الشجرة كاملة', from: n => 'من ' + n }
-  : { gen: n => 'Generation ' + n, search: 'Search a name…', none: 'No results', born: 'Born', died: 'Died', parents: 'Parents', spouses: 'Marriages', children: 'Children', siblings: 'Siblings', v: 'Top-down', h: 'Sideways', made: 'Made with Nasab', job: 'Work', place: 'Place', close: 'Close', fit: 'Whole tree', from: n => 'by ' + n };
+const T = ar ? { gen: n => 'الجيل ' + n, search: 'ابحث عن اسم…', none: 'لا نتائج', born: 'الميلاد', died: 'الوفاة', parents: 'الوالدان', spouses: 'الزواج', children: 'الأبناء', siblings: 'الإخوة', v: 'عمودي', h: 'أفقي', job: 'المهنة', place: 'المكان', close: 'إغلاق', fit: 'الشجرة كاملة', from: n => 'من ' + n }
+  : { gen: n => 'Generation ' + n, search: 'Search a name…', none: 'No results', born: 'Born', died: 'Died', parents: 'Parents', spouses: 'Marriages', children: 'Children', siblings: 'Siblings', v: 'Top-down', h: 'Sideways', job: 'Work', place: 'Place', close: 'Close', fit: 'Whole tree', from: n => 'by ' + n };
 
 // people as the app's index expects them
 // (children keep the order the app showed: o = among the same parents, r = among all the father's)
@@ -21,6 +21,7 @@ for (const [id, p] of Object.entries(D.people)) state.people[id] = { id, n: p.n,
 const ix = buildIndex(state);
 ix.living = id => !D.people[id].dead;
 ix.order = list => [...list].sort((a, b) => ((D.people[a] && D.people[a].r) || 1e9) - ((D.people[b] && D.people[b].r) || 1e9));
+ix.orderedChildren = id => ix.order(ix.children(id));
 const dark = matchMedia('(prefers-color-scheme: dark)').matches;
 const th = dark ? SCREEN.dark : SCREEN.light;
 
@@ -147,7 +148,6 @@ res.addEventListener('click', e => { const b = e.target.closest('[data-go]'); if
 /* header and modes */
 $('#title').textContent = D.title;
 $('#sub').textContent = D.sub || '';
-$('#made').textContent = T.made;
 for (const b of document.querySelectorAll('[data-mode]')) {
   b.textContent = T[b.getAttribute('data-mode')];
   b.addEventListener('click', () => { mode = b.getAttribute('data-mode'); document.querySelectorAll('[data-mode]').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false')); render(); fit(); });

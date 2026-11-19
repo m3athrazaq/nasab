@@ -114,6 +114,7 @@ export function exportGedcom(ix, s, { appVersion = '1.0.0', now = new Date() } =
     if (g.date || (u.h && u.w)) { out.push('1 MARR' + (g.date ? '' : ' Y')); if (g.date) out.push(`2 DATE ${g.date}`); if (g.hijri) out.push(`2 _HDATE ${g.hijri}`); }
     if (u.st === 'd') { const e = gedDate(u.ed); out.push('1 DIV' + (e.date ? '' : ' Y')); if (e.date) out.push(`2 DATE ${e.date}`); if (e.hijri) out.push(`2 _HDATE ${e.hijri}`); }
     if (u.ord) out.push(`1 _ORDER ${u.ord}`);
+    if (u.ko) out.push(`1 _KIDORDER ${u.ko.toUpperCase()}`);
     if (u.note) out.push(...lines(1, 'NOTE', u.note));
     out.push(`1 _NASAB_ID ${id}`);
   }
@@ -190,7 +191,7 @@ export function importGedcom(text) {
       id: val(r, '_NASAB_ID') || r.xref, gxref: r.xref,
       h: famOfIndi.has(h) ? famOfIndi.get(h).id : '', w: famOfIndi.has(w) ? famOfIndi.get(w).id : '',
       md: marr ? (hd && parseD(hd) ? hd : readGedDate(val(marr, 'DATE'))) : '', st: div ? 'd' : 'm', ed: div ? (ed && parseD(ed) ? ed : readGedDate(val(div, 'DATE'))) : '',
-      ord: +val(r, '_ORDER') || 0, note: r.kids.filter(k => k.tag === 'NOTE').map(k => k.value).join('\n')
+      ord: +val(r, '_ORDER') || 0, ko: String(val(r, '_KIDORDER') || '').toLowerCase(), note: r.kids.filter(k => k.tag === 'NOTE').map(k => k.value).join('\n')
     };
     unions.push(u);
     for (const c of r.kids.filter(k => k.tag === 'CHIL')) {

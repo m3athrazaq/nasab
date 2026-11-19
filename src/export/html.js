@@ -18,8 +18,7 @@ export async function exportHtml(s, { photos = true, hideLiving = true, notes = 
   const pos = {}, rank = {};
   for (const u of Object.keys(ix.U)) ix.childrenOfUnion(u).forEach((c, i) => { pos[c] = i + 1; });
   for (const id of Object.keys(ix.P)) {
-    const kids = ix.children(id);
-    if (kids.length && ix.P[id].g !== 'f') ix.order(kids).forEach((c, i) => { rank[c] = i + 1; });
+    if (ix.children(id).length && ix.P[id].g !== 'f') ix.orderedChildren(id).forEach((c, i) => { rank[c] = i + 1; });
   }
   const people = {};
   for (const [id, p] of Object.entries(ix.P)) {
@@ -78,11 +77,10 @@ h1{margin:0;font-family:"Noto Naskh Arabic","Geeza Pro","Traditional Arabic",Geo
 dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0}dt{color:var(--ink3);font-size:14px}dd{margin:0;font-size:15px}
 .lk{border:0;background:var(--paper);color:var(--ink);border-radius:10px;padding:3px 10px;margin:2px;font:700 15px "Noto Naskh Arabic","Geeza Pro",serif}
 .note{white-space:pre-wrap;line-height:1.9;font-family:"Noto Naskh Arabic","Geeza Pro",serif;border-top:1px solid var(--rule);padding-top:10px}
-#made{position:fixed;bottom:calc(env(safe-area-inset-bottom) + 8px);inset-inline-start:12px;font-size:11px;color:var(--ink3);z-index:4}
 </style></head><body>
 <div id="tree"></div>
 <header><h1 id="title"></h1><p id="sub"></p><div class="bar"><input id="q" type="search" autocomplete="off"><button data-mode="v" aria-pressed="true"></button><button data-mode="h" aria-pressed="false"></button><button id="fit"></button></div></header>
-<div id="res" hidden></div><div id="panel" hidden></div><div id="made"></div>
+<div id="res" hidden></div><div id="panel" hidden></div>
 <script>/*DATA*/</script>
 <script>/*VIEWER*/</script>
 </body></html>`;

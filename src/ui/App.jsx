@@ -10,7 +10,7 @@ import { Toasts, DialogHost, toast, PickerSheet } from './kit.jsx';
 import { onBackButton, exitApp, takeOpenedFile, onFileOpened, isNative } from '../core/native.js';
 import { TreeScreen, ViewSheet, rootSheet } from './screens/Tree.jsx';
 import { FamiliesSheet } from './screens/Families.jsx';
-import { PersonSheet, AddSheet } from './screens/Sheets.jsx';
+import { PersonSheet, AddSheet, KidsOrderSheet } from './screens/Sheets.jsx';
 import { PersonPage } from './screens/Person.jsx';
 import { PersonEditor } from './screens/Editor.jsx';
 import { PeopleScreen } from './screens/People.jsx';
@@ -105,6 +105,7 @@ export function App() {
       {!onTree && <Screen rt={{ ...rt, name }} />}
       <Tabs current={tab} />
       <PersonSheet />
+      <KidsOrderSheet />
       <AddSheet />
       <ViewSheet />
       <PickerSheet />

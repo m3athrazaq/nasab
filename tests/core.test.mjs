@@ -25,6 +25,7 @@ const { exportGedcom, importGedcom, readGedDate, gedDate } = await import('../sr
 const { exportExcel, readExcel } = await import('../src/export/excel.js');
 const { createTextEngine } = await import('../src/chart/text.js');
 const { buildPoster } = await import('../src/export/poster.js');
+const { buildTable, tableLayout } = await import('../src/export/table.js');
 const { buildBook } = await import('../src/export/book.js');
 const { buildCertificate } = await import('../src/export/certificate.js');
 const { sceneToPdf, sceneToSvg } = await import('../src/chart/render.js');
@@ -305,6 +306,54 @@ await section('children order', () => {
   eq('an unknown setting falls back', sanitizeState({ settings: { kidsOrder: 'x' } }).settings.kidsOrder, 'old');
 });
 
+/* ---------------- one person's own order for his children ---------------- */
+await section('one person\'s children order', async () => {
+  state.value = defaultState();
+  replaceState(demoState());
+  const ids = () => buildIndex(state.value);
+  const names = (x, list) => list.map(id => x.P[id].n);
+  let x = ids();
+  const us = x.unions('demom2').filter(u => x.childrenOfUnion(u).length);
+  const before = us.map(u => names(x, x.childrenOfUnion(u)));
+  const other = names(x, x.children('demor1'));
+  A.setKidsOrder('demom2', 'young');
+  x = ids();
+  eq('youngest first for him only', us.map(u => names(x, x.childrenOfUnion(u))), before.map(l => [...l].reverse()));
+  eq('his order is his', [x.kidsOrderOf('demom2'), x.ownKidsOrder('demom2'), x.kidsOrderOf('demor1')], ['young', true, 'old']);
+  eq('others keep the app\'s order', names(x, x.children('demor1')), other);
+  eq('the app setting is untouched', state.value.settings.kidsOrder, 'old');
+  // by hand: the arrows start from what is shown, then move one
+  const groups = us.map(u => x.childrenOfUnion(u));
+  A.setKidsOrder('demom2', 'manual', groups);
+  x = ids();
+  eq('switching to "my order" keeps what was shown', us.map(u => names(x, x.childrenOfUnion(u))), before.map(l => [...l].reverse()));
+  const g2 = groups.map(l => [...l]);
+  [g2[0][0], g2[0][1]] = [g2[0][1], g2[0][0]];
+  A.arrangeKids('demom2', g2);
+  x = ids();
+  eq('a child moved by hand stays there', x.childrenOfUnion(us[0]), g2[0]);
+  eq('all his children in one list follow the same order', x.orderedChildren('demom2'), g2.flat());
+  const men = layoutDescendants(x, 'demor1', { mode: 'v', women: false });
+  const sons = men.nodes.filter(n => n.parent === 'demom2').sort((a, b) => b.x - a.x).map(n => n.id);
+  eq('without women the tree shows his sons in his order', sons, g2.flat().filter(id => x.P[id].g !== 'f'));
+  // kept, backed up and restored
+  const kept = sanitizeState(JSON.parse(JSON.stringify(state.value)));
+  eq('the choice is saved with the marriage', us.map(u => kept.unions[u].ko), us.map(() => 'manual'));
+  const { blob } = await exportExcel(state.value, { photos: false });
+  const rr = await readExcel(await blob.arrayBuffer());
+  const rx = sanitizeState(rr.raw || rr.state || rr);
+  const bx = buildIndex(rx);
+  eq('Excel backup keeps his order', us.map(u => bx.childrenOfUnion(u)), g2);
+  const rg = sanitizeState(importGedcom(exportGedcom(x, state.value)).raw);
+  eq('GEDCOM keeps his order', us.map(u => buildIndex(rg).childrenOfUnion(u)), g2);
+  undo();
+  eq('undo puts the child back', ids().childrenOfUnion(us[0]), groups[0]);
+  A.setKidsOrder('demom2', '');
+  x = ids();
+  eq('back to the app\'s order', [x.kidsOrderOf('demom2'), x.ownKidsOrder('demom2')], ['old', false]);
+  eq('an unknown order is dropped', sanitizeState({ unions: [{ id: 'u001', h: '', w: '', ko: 'x' }] }).unions.u001 ? sanitizeState({ unions: [{ id: 'u001', ko: 'x' }] }).unions.u001.ko : '', '');
+});
+
 /* ---------------- what the tree shows: women, and a lower first generation ---------------- */
 await section('tree filters', () => {
   const full = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true });
@@ -384,6 +433,60 @@ await section('poster options', async () => {
   const R = buildPoster(ix, demo, { mode: 'r', theme: 'palm', paper: 'A3', root: 'demor1', fromGen: 2 }, env);
   check('canopy from generation 2: the family on the trunk', texts(R).includes('الراشد'));
   check('no poster when the generation is empty', buildPoster(ix, demo, { mode: 'v', theme: 'sadu', paper: 'A3', root: 'demor1', fromGen: 9 }, env) === null);
+  // no app credit on any poster; who prepared it, when given
+  for (const mode of ['v', 'h', 'r', 'f']) {
+    const P = buildPoster(ix, demo, { mode, theme: 'sadu', paper: 'A3', by: 'سالم' }, env);
+    check(`${mode}: no "made with" mark, "prepared by" printed`, !/صُنعت بتطبيق|Made with Nasab/.test(texts(P)) && texts(P).includes('إعداد: سالم'));
+  }
+});
+
+/* ---------------- the table of generations ---------------- */
+const GEN_COLORS_USED = scene => /#FFC072|#9CE159|#FFE061|#64B2DF/i.test(JSON.stringify(scene));
+await section('table of generations', async () => {
+  const fontkit = require('@pdf-lib/fontkit');
+  const bidi = require('bidi-js')();
+  const pdfLib = require('pdf-lib');
+  const fonts = {};
+  for (const [k, f] of Object.entries({ naskhB: 'NotoNaskhArabic-Bold', naskh: 'NotoNaskhArabic-Regular', ui: 'ReadexPro-Regular', uiB: 'ReadexPro-SemiBold', amiri: 'Amiri-Regular' })) fonts[k] = fs.readFileSync(path.join(ROOT, 'fonts/pdf', f + '.ttf'));
+  const engine = createTextEngine({ fontkit, bidi, fonts, dir: 'rtl' });
+  const env = { measure: engine.measure.bind(engine), today: new Date(2026, 10, 19) };
+  const node = (id, ...children) => ({ id, children });
+  // a brother whose family starts lower down: his sisters tuck in right under him
+  const t1 = node('A', node('B', node('C', node('D'), node('E')), node('F')), node('G'), node('H'));
+  const L1 = tableLayout([t1]);
+  const at = (L, id) => { const n = L.cells.find(c => c.id === id); return n ? [n.col, n.row] : null; };
+  eq('first child on his father\'s row', [at(L1, 'A'), at(L1, 'B'), at(L1, 'C'), at(L1, 'D')], [[0, 0], [1, 0], [2, 0], [3, 0]]);
+  eq('sisters under a brother whose family starts lower down', [at(L1, 'G'), at(L1, 'H')], [[1, 1], [1, 2]]);
+  eq('a family of more than one row is followed by a blank row', [at(L1, 'E'), at(L1, 'F')], [[3, 1], [2, 3]]);
+  // when the cell beside them is taken, they wait for the end of his family and a blank row
+  const t2 = node('A', node('B', node('C'), node('D'), node('E')), node('F'));
+  const L2 = tableLayout([t2]);
+  eq('…else after his family and a blank row', at(L2, 'F'), [1, 4]);
+  // a line of one child after another stays on one row, next to the others
+  const t3 = node('A', node('B'), node('C', node('D')), node('E'));
+  eq('one-row lines sit together', ['B', 'C', 'D', 'E'].map(id => at(tableLayout([t3]), id)), [[1, 0], [1, 1], [2, 1], [1, 2]]);
+  const free = L => { const seen = new Set(); for (const n of L.cells) { const k = n.col + ':' + n.row; if (seen.has(k)) return false; seen.add(k); } return true; };
+  check('no two people share a cell', free(L1) && free(L2));
+  // the sample family, as one long page and on pages
+  const one = buildTable(ix, demo, { paper: 'auto', by: 'سالم' }, env);
+  const all = JSON.stringify(one.scene);
+  check('one long page with every person', one.pages.length === 1 && one.people === [...generations(ix, demo.root).keys()].length && all.includes('إعداد: سالم') && all.includes('الجيل الأول'), `${one.people} people`);
+  const a4 = buildTable(ix, demo, { paper: 'A4', orient: 'landscape' }, env);
+  const named = a4.pages.map(p => JSON.stringify(p.scene));
+  check('A4 landscape: several pages, the generations on each, page numbers', a4.pages.length >= 2 && named.every(x => x.includes('الجيل الأول')) && named[1].includes(`صفحة 2 من ${a4.pages.length}`), a4.pages.length + ' pages');
+  check('a later page starts with its first row\'s forefathers, faintly', /"fill":"#5A5A5A"/.test(named[1]));
+  const men = buildTable(ix, demo, { paper: 'auto', women: false, fromGen: 3 }, env);
+  check('from generation 3 without women', men && JSON.stringify(men.scene).includes('الجيل الثالث') && !JSON.stringify(men.scene).includes('الجيل الأول') && men.people === [...generations(ix, demo.root, { women: false }).entries()].filter(([, g]) => g >= 3).length);
+  const rtl = buildTable(ix, demo, { paper: 'auto', gdir: 'rtl' }, env);
+  const firstCol = sc => sc.find(i => i.t === 'text' && i.s === 'الجيل الأول');
+  check('the first generation on the left, or on the right', firstCol(one.scene).x < one.W / 2 && firstCol(rtl.scene).x > rtl.W / 2);
+  const doc = await pdfLib.PDFDocument.create();
+  for (const pg of a4.pages) sceneToPdf(pdfLib, doc, doc.addPage([pg.W, pg.H]), pg.scene, { engine });
+  const parsed = await pdfLib.PDFDocument.load(await doc.save());
+  eq('the table\'s PDF opens with every page', parsed.getPageCount(), a4.pages.length);
+  const bw = buildTable(ix, demo, { paper: 'A4', colors: false }, env);
+  check('in black and white: no colour but grey', !GEN_COLORS_USED(bw.scene));
+  check('nothing to draw from an empty generation', buildTable(ix, demo, { paper: 'auto', fromGen: 9 }, env) === null);
 });
 
 console.log(fails ? `FAIL ${fails} of ${passes + fails} checks` : `PASS all ${passes} checks`);

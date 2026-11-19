@@ -2,11 +2,11 @@
 // their children, brothers and sisters, and his story.
 import { useState } from 'preact/hooks';
 import { state } from '../../core/store.js';
-import { setMe, setRoot, mergePeople, deletePerson, detachChild, moveChild, moveUnion, removeUnion, editUnion, branchOf, setView } from '../../core/actions.js';
+import { setMe, setRoot, mergePeople, detachChild, removeUnion, editUnion, setView } from '../../core/actions.js';
 import { t, count, fmtDateParts, fmtAge, ageOf, lang } from '../../core/i18n.js';
 import { mercy } from '../../core/names.js';
 import { ageBetween } from '../../core/dates.js';
-import { IX, openAdd, pickPerson, focusOn } from '../app-state.js';
+import { IX, openAdd, pickPerson, focusOn, kidsOrderSheet } from '../app-state.js';
 import { go, back } from '../router.js';
 import { Icon } from '../icons.jsx';
 import { TopBar, Seal, PersonRow, Empty, Sheet, confirmDialog, toast, DateInput, Seg } from '../kit.jsx';
@@ -19,7 +19,6 @@ import { undo } from '../../core/store.js';
 export function PersonPage({ id }) {
   const s = state.value, ix = IX.value, p = ix.P[id];
   const [more, setMore] = useState(false);
-  const [order, setOrder] = useState('');
   const [editU, setEditU] = useState('');
   if (!p) return <div class="screen"><TopBar back title="" /><div class="wrap"><Empty icon="user" title={t('gone_t')} text={t('gone_p')} /></div></div>;
   const dead = !ix.living(id);
@@ -92,17 +91,10 @@ export function PersonPage({ id }) {
                 {other ? <PersonRow id={other} meta={[p.g === 'f' ? t('husband') : t('wife') + (unions.length > 1 ? ' ' + ordinal(ui + 1, 'f') : ''), md.main ? t('married_on', { d: md.main }) : '', U.st === 'd' ? t('divorced') : ''].filter(Boolean).join(' — ')} onClick={() => go('person/' + other)} />
                   : <div class="union-h">{p.g === 'f' ? t('father_unknown') : t('mother_unknown')}</div>}
                 {kids.length > 0 && <div class="union-h"><span style="flex:1">{t('their_children', { n: count(kids.length, 'child') })}</span>
-                  {kids.length > 1 && s.settings.kidsOrder === 'manual' && <button class="linkbtn small" onClick={() => setOrder(order === u ? '' : u)}>{order === u ? t('done') : t('reorder')}</button>}
+                  {kids.length > 1 && <button class="linkbtn small" onClick={() => { kidsOrderSheet.value = id; }}>{t('reorder')}</button>}
                   {other && <button class="linkbtn small" onClick={() => setEditU(u)}>{t('marriage_details')}</button>}
                 </div>}
-                {kids.map(k => order === u ? (
-                  <div class="row" key={k}>
-                    <Seal id={k} size="sm" />
-                    <span class="grow"><span class="title nm">{nameOf(k)}</span></span>
-                    <button class="iconbtn" onClick={() => moveChild(k, -1, kids)} aria-label={t('move_up')}><Icon name="up" /></button>
-                    <button class="iconbtn" onClick={() => moveChild(k, 1, kids)} aria-label={t('move_down')}><Icon name="down" /></button>
-                  </div>
-                ) : <PersonRow key={k} id={k} onClick={() => go('person/' + k)} />)}
+                {kids.map(k => <PersonRow key={k} id={k} onClick={() => go('person/' + k)} />)}
                 <button class="row" onClick={() => openAdd('children', id)} style="min-height:48px"><Icon name="plus" class="chev" /><span class="grow small muted">{t('add_children_here')}</span></button>
                 {!kids.length && other && <button class="row" onClick={() => setEditU(u)} style="min-height:48px"><Icon name="rings" class="chev" /><span class="grow small muted">{t('marriage_details')}</span></button>}
               </div>

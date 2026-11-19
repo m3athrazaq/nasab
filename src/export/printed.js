@@ -2,6 +2,7 @@
 import { posterTheme, cssFont } from '../chart/themes.js';
 import { sceneToPdf, sceneToCanvas, sceneToSvg } from '../chart/render.js';
 import { buildPoster } from './poster.js';
+import { buildTable, TABLE_FONTS } from './table.js';
 import { loadPdfLib, getEngine, registerFaces, themeFontKeys, photoBytesMap, photoImageMap, scenePhotos } from './engine.js';
 import { lang } from '../core/i18n.js';
 import { bufToB64 } from '../core/util.js';
@@ -10,20 +11,38 @@ const dirOf = () => (lang.value === 'ar' ? 'rtl' : 'ltr');
 const allPhotoIds = s => new Set(Object.values(s.people).map(p => p.photo).filter(Boolean));
 
 /** sets the document's title, author, language */
-export function pdfMeta(doc, title) {
-  doc.setTitle(title || 'Nasab');
-  doc.setAuthor('Nasab'); doc.setCreator('Nasab — نَسَب'); doc.setProducer('Nasab');
+export function pdfMeta(doc, title, author = '') {
+  doc.setTitle(title || 'Family tree');
+  if (author) doc.setAuthor(author);
+  doc.setCreator('Nasab'); doc.setProducer('Nasab');
   doc.setLanguage(lang.value === 'ar' ? 'ar' : 'en');
   doc.setCreationDate(new Date());
 }
 
-/** the poster (layout, size, measures) with the theme's fonts — for the preview and every format */
+/** the poster (layout, size, measures) with the theme's fonts — for the preview and every format.
+ * The table of generations ('g') has its own look and may run over several pages (P.pages). */
 export async function preparePoster(ix, s, opts) {
   const th = posterTheme(opts.theme);
-  const keys = themeFontKeys(th);
+  const table = opts.mode === 'g';
+  const keys = table ? TABLE_FONTS : themeFontKeys(th);
   const engine = await getEngine(keys, dirOf());
-  const P = buildPoster(ix, s, opts, { measure: engine.measure.bind(engine), photoIds: opts.photos === false ? new Set() : allPhotoIds(s) });
+  const env = { measure: engine.measure.bind(engine), photoIds: opts.photos === false || table ? new Set() : allPhotoIds(s) };
+  const P = table ? buildTable(ix, s, opts, env) : buildPoster(ix, s, opts, env);
   return { P, engine, keys, th };
+}
+/** an image or an SVG of the table is one long page, however it is printed */
+const oneImage = opts => (opts.mode === 'g' ? { ...opts, paper: 'auto', single: true } : opts);
+/** several pages one under the other (the preview of a table printed on pages) */
+function stacked(pages, gap = 24) {
+  const W = Math.max(...pages.map(p => p.W));
+  const scene = [];
+  let y = 0;
+  pages.forEach((p, i) => {
+    if (i) { scene.push({ t: 'rect', x: 0, y, w: W, h: gap, fill: '#D9D4CB' }); y += gap; }
+    scene.push({ t: 'g', tf: [1, (W - p.W) / 2, y], items: p.scene });
+    y += p.H;
+  });
+  return { W, H: y, scene };
 }
 
 export async function posterPdf(ix, s, opts) {
@@ -31,13 +50,12 @@ export async function posterPdf(ix, s, opts) {
   const { P, engine } = await preparePoster(ix, s, opts);
   if (!P) throw new Error('empty');
   const doc = await lib.PDFDocument.create();
-  pdfMeta(doc, opts.title || 'Family tree');
-  const page = doc.addPage([P.W, P.H]);
+  pdfMeta(doc, opts.title || 'Family tree', opts.by);
   const images = new Map();
   for (const [id, bytes] of await photoBytesMap(scenePhotos(P.scene), 360)) {
     try { images.set(id, await doc.embedJpg(bytes)); } catch (e) { /* skip a broken photo */ }
   }
-  sceneToPdf(lib, doc, page, P.scene, { engine, images });
+  for (const pg of P.pages || [P]) sceneToPdf(lib, doc, doc.addPage([pg.W, pg.H]), pg.scene, { engine, images });
   const bytes = await doc.save();
   return { blob: new Blob([bytes], { type: 'application/pdf' }), P };
 }
@@ -47,10 +65,11 @@ export function pngScale(W, H, { maxArea = 16e6, maxSide = 8000, want = 3 } = {}
   return Math.max(0.2, Math.min(want, Math.sqrt(maxArea / (W * H)), maxSide / Math.max(W, H)));
 }
 export async function posterPng(ix, s, opts) {
-  const { P, keys } = await preparePoster(ix, s, opts);
+  const { P, keys } = await preparePoster(ix, s, oneImage(opts));
   if (!P) throw new Error('empty');
   await registerFaces(keys);
-  const k = pngScale(P.W, P.H);
+  // a long table may be a tall image (phones draw up to 16 megapixels, whatever the shape)
+  const k = pngScale(P.W, P.H, opts.mode === 'g' ? { maxSide: 16000 } : {});
   const c = document.createElement('canvas');
   c.width = Math.round(P.W * k); c.height = Math.round(P.H * k);
   const ctx = c.getContext('2d');
@@ -63,7 +82,7 @@ export async function posterPng(ix, s, opts) {
   return { blob, P, px: [Math.round(P.W * k), Math.round(P.H * k)] };
 }
 export async function posterSvg(ix, s, opts) {
-  const { P, engine } = await preparePoster(ix, s, opts);
+  const { P, engine } = await preparePoster(ix, s, oneImage(opts));
   if (!P) throw new Error('empty');
   const hrefs = new Map();
   for (const [id, bytes] of await photoBytesMap(scenePhotos(P.scene), 300)) hrefs.set(id, 'data:image/jpeg;base64,' + bufToB64(bytes));
@@ -75,8 +94,9 @@ export async function posterPreview(ix, s, opts, photoUrls) {
   const { P, keys } = await preparePoster(ix, s, opts);
   if (!P) return null;
   await registerFaces(keys);
-  const svg = sceneToSvg(P.scene, { width: P.W, height: P.H, text: 'fonts', dir: dirOf(), photoHref: id => (photoUrls && photoUrls.get(id)) || '' });
-  return { svg, P };
+  const V = P.pages && P.pages.length > 1 ? stacked(P.pages) : P;
+  const svg = sceneToSvg(V.scene, { width: V.W, height: V.H, text: 'fonts', dir: dirOf(), photoHref: id => (photoUrls && photoUrls.get(id)) || '' });
+  return { svg, P, W: V.W, H: V.H };
 }
 
 /* ---------------- the family book and the lineage certificate ---------------- */

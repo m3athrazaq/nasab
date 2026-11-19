@@ -20,20 +20,22 @@ export function buildIndex(s) {
   // the order the children were put in (moved by hand, else by birth, else as they were added)
   const childOrder = (a, b) => cmp(ordv(P[a].ord), ordv(P[b].ord)) || cmp(birth(a), birth(b)) || cmp(P[a].at || 0, P[b].at || 0) || cmp(a, b);
   const kidsOrder = (s.settings && s.settings.kidsOrder) || 'old';
+  /** a couple's own order for their children (chosen from a parent's card), else the app's */
+  const orderOfUnion = uid => (U[uid] && U[uid].ko) || kidsOrder;
   /**
-   * brothers and sisters in the order the settings ask for: by age (eldest or youngest first) or as
-   * entered. By age, those with a known birth date are sorted among themselves and those without one
-   * keep their place, so a family entered in order without dates stays in order.
+   * brothers and sisters in an order: by age (eldest or youngest first) or as entered / arranged.
+   * By age, those with a known birth date are sorted among themselves and those without one keep
+   * their place, so a family entered in order without dates stays in order.
    */
-  function order(list) {
+  function order(list, mode = kidsOrder) {
     const base = [...list].sort(childOrder);
-    if (kidsOrder === 'manual') return base;
+    if (mode === 'manual') return base;
     const dated = base.filter(id => isFinite(birth(id))).sort((a, b) => cmp(birth(a), birth(b)) || cmp(base.indexOf(a), base.indexOf(b)));
     let k = 0;
     const out = base.map(id => (isFinite(birth(id)) ? dated[k++] : id));
-    return kidsOrder === 'young' ? out.reverse() : out;
+    return mode === 'young' ? out.reverse() : out;
   }
-  for (const [u, list] of kids) kids.set(u, order(list));
+  for (const [u, list] of kids) kids.set(u, order(list, orderOfUnion(u)));
   const firstBirth = uid => { const k = kids.get(uid); return k && k.length ? Math.min(...k.map(birth)) : Infinity; };
   const unionOrder = (a, b) => cmp(ordv(U[a].ord), ordv(U[b].ord)) || cmp(sortKeyD(U[a].md), sortKeyD(U[b].md)) || cmp(firstBirth(a), firstBirth(b)) || cmp(U[a].at || 0, U[b].at || 0) || cmp(a, b);
   for (const list of unionsOf.values()) list.sort(unionOrder);
@@ -47,6 +49,11 @@ export function buildIndex(s) {
   const spouses = id => unions(id).map(uid => partnerIn(uid, id)).filter(Boolean);
   const children = id => unions(id).flatMap(uid => kids.get(uid) || []);
   const childrenOfUnion = uid => kids.get(uid) || [];
+  /** the order of a person's children: his own (set from his card on all his marriages), else the app's */
+  const kidsOrderOf = id => { for (const u of unions(id)) if (U[u].ko) return U[u].ko; return kidsOrder; };
+  const ownKidsOrder = id => unions(id).some(u => !!U[u].ko);
+  /** all of a person's children as one list (by age across his wives, or as he arranged them) */
+  const orderedChildren = id => order(children(id), kidsOrderOf(id));
   /** brothers and sisters: full (same union), and half through the father or the mother */
   function siblings(id) {
     const p = person(id); if (!p) return { full: [], paternal: [], maternal: [] };
@@ -117,7 +124,7 @@ export function buildIndex(s) {
   return {
     P, U, kids, unionsOf, person, father, mother, unions, partnerIn, spouses, children, childrenOfUnion, siblings,
     paternalLine, familyOf, ancestors, descendants, isAncestorOf, founderOf, tops, defaultRoot, living, unionOfChild,
-    order, kidsOrder, count: Object.keys(P).length
+    order, kidsOrder, kidsOrderOf, ownKidsOrder, orderedChildren, count: Object.keys(P).length
   };
 }
 

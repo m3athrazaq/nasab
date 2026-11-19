@@ -122,8 +122,9 @@ export function ThemePicker({ value, onChange }) {
   );
 }
 
-const MODES = [['v', 'mode_v'], ['h', 'mode_h'], ['r', 'mode_r'], ['f', 'mode_f']];
+const MODES = [['v', 'mode_v'], ['h', 'mode_h'], ['r', 'mode_r'], ['f', 'mode_f'], ['g', 'mode_g']];
 const PAPERS = ['A4', 'A3', 'A2', 'A1', 'A0', 'auto'];
+const TABLE_PAPERS = ['auto', 'A4', 'A3', 'A2', 'A1', 'A0']; // the table: one long page first (to read on a phone)
 
 /* ---------- the tree poster ---------- */
 export function PosterScreen() {
@@ -135,14 +136,18 @@ export function PosterScreen() {
     head: saved.head, title: saved.title || '', sub: saved.sub, root: saved.root && ix.P[saved.root] ? saved.root : '', person: '',
     photos: saved.photos !== false, dates: saved.dates !== false, spouses: !!saved.spouses, dKids: saved.dKids != null ? saved.dKids : s.view.dKids,
     women: saved.women != null ? saved.women : s.view.women !== false, fromGen: saved.fromGen || 1,
-    colors: saved.colors !== false, legend: saved.legend !== false, hideLiving: !!saved.hideLiving
+    colors: saved.colors !== false, legend: saved.legend !== false, hideLiving: !!saved.hideLiving,
+    by: saved.by || '', gpaper: saved.gpaper || 'auto', gdir: saved.gdir || 'ltr'
   }));
   const set = patch => setO(x => ({ ...x, ...patch }));
   useEffect(() => {
-    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, women: o.women, fromGen: o.fromGen, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving }), 600);
+    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, women: o.women, fromGen: o.fromGen, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving, by: o.by, gpaper: o.gpaper, gdir: o.gdir }), 600);
     return () => clearTimeout(tm);
   }, [o]);
   const [warn, setWarn] = useState(null);
+  const [pages, setPages] = useState(1);
+  const table = o.mode === 'g';
+  const paper = table ? o.gpaper : o.paper;
   const top = o.root && ix.P[o.root] ? o.root : root;
   const person = o.person && ix.P[o.person] ? o.person : (s.me && ix.P[s.me] ? s.me : top);
   // the generations under the top (with the same rules as the drawing): where the poster may start
@@ -150,14 +155,15 @@ export function PosterScreen() {
   const genCount = Math.max(1, ...gens.values());
   const fromGen = Math.min(o.fromGen || 1, genCount);
   const inGen = n => [...gens.values()].filter(g => g === n).length;
-  const opts = { ...o, mode: o.mode, root: top, person, fromGen, title: o.title || undefined };
+  const opts = { ...o, mode: o.mode, root: top, person, fromGen, paper, title: o.title || undefined, by: o.by.trim() };
   const def = o.mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, top, fromGen);
   const make = async () => {
     const { posterPreview } = await import('../../export/printed.js');
     const r = await posterPreview(ix, s, opts, photoUrls);
     if (!r) return null;
     setWarn(r.P.warn ? r.P.nameSize : null);
-    return { svg: r.svg, W: r.P.W, H: r.P.H };
+    setPages(r.P.pages ? r.P.pages.length : 1);
+    return { svg: r.svg, W: r.W || r.P.W, H: r.H || r.P.H };
   };
   const name = () => fileBase() + (o.mode === 'f' ? '-' + nameOf(person) : '');
   const pdf = (print = false) => runExport(t('making_pdf'), async () => {
@@ -182,6 +188,7 @@ export function PosterScreen() {
       <div class="wrap">
         <Preview make={make} deps={[JSON.stringify(opts), ix, photoUrls]} />
         {warn != null && <p class="warn">{t('small_names', { n: num(warn, 1) })}</p>}
+        {table && pages > 1 && <p class="hint">{t('table_pages', { n: count(pages, 'page') })}</p>}
         <div class="btns" style="margin-top:12px">
           <button class="btn" onClick={() => pdf(false)}><Icon name="download" />PDF</button>
           <button class="btn ghost" onClick={png}><Icon name="image" />{t('image')}</button>
@@ -192,15 +199,26 @@ export function PosterScreen() {
         <div class="section">
           <h2>{t('shape')}</h2>
           <Seg value={o.mode} onChange={m => set({ mode: m })} options={MODES.map(([m, l]) => [m, t(l)])} label={t('shape')} />
+          {table && <p class="hint">{t('mode_hint_g')}</p>}
         </div>
-        <div class="section">
-          <h2>{t('look')}</h2>
-          <ThemePicker value={o.theme} onChange={th => set({ theme: th })} />
-        </div>
+        {table ? (
+          <div class="section">
+            <h2>{t('gdir')}</h2>
+            <Seg value={o.gdir} onChange={v => set({ gdir: v })} options={[['ltr', t('gdir_ltr')], ['rtl', t('gdir_rtl')]]} label={t('gdir')} />
+          </div>
+        ) : (
+          <div class="section">
+            <h2>{t('look')}</h2>
+            <ThemePicker value={o.theme} onChange={th => set({ theme: th })} />
+          </div>
+        )}
         <div class="section">
           <h2>{t('paper')}</h2>
-          <div class="chips">{PAPERS.map(p => <button key={p} class="chip" aria-pressed={o.paper === p ? 'true' : 'false'} onClick={() => set({ paper: p })}>{p === 'auto' ? t('paper_auto') : p}</button>)}</div>
-          {o.paper === 'auto' ? <p class="hint">{t('paper_auto_hint')}</p> : <div style="margin-top:8px"><Seg mini value={o.orient} onChange={v => set({ orient: v })} options={[['auto', t('orient_auto')], ['portrait', t('portrait')], ['landscape', t('landscape')]]} label={t('orientation')} /></div>}
+          <div class={'chips' + (table ? ' wrap' : '')}>{(table ? TABLE_PAPERS : PAPERS).map(p => <button key={p} class="chip" aria-pressed={paper === p ? 'true' : 'false'} onClick={() => set(table ? { gpaper: p } : { paper: p })}>{p === 'auto' ? t(table ? 'paper_long' : 'paper_auto') : p}</button>)}</div>
+          {paper === 'auto' ? <p class="hint">{t(table ? 'paper_auto_hint_g' : 'paper_auto_hint')}</p> : <>
+            <div style="margin-top:8px"><Seg mini value={o.orient} onChange={v => set({ orient: v })} options={[['auto', t('orient_auto')], ['portrait', t('portrait')], ['landscape', t('landscape')]]} label={t('orientation')} /></div>
+            {table && <p class="hint">{t('paper_pages_hint_g')}</p>}
+          </>}
         </div>
         <div class="section">
           <h2>{o.mode === 'f' ? t('fan_person') : t('starts_from')}</h2>
@@ -222,19 +240,28 @@ export function PosterScreen() {
           <Field label={t('title_head')}><input class="input" value={o.head ?? def.head} onInput={e => set({ head: e.currentTarget.value })} /></Field>
           <Field label={t('title_main')}><input class="input" value={o.title} placeholder={def.title} onInput={e => set({ title: e.currentTarget.value })} /></Field>
           <Field label={t('title_sub')}><input class="input" value={o.sub ?? def.sub} onInput={e => set({ sub: e.currentTarget.value })} /></Field>
+          <Field label={t('title_by')}><input class="input" value={o.by} placeholder={t('title_by_ph')} maxLength={80} onInput={e => set({ by: e.currentTarget.value })} /></Field>
         </div>
         <div class="section">
           <h2>{t('show')}</h2>
-          <div class="list">
-            <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />
-            <Toggle checked={o.dates} onChange={v => set({ dates: v })} label={t('opt_dates')} />
-            {o.mode !== 'f' && <Toggle checked={o.women} onChange={v => set({ women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />}
-            {o.mode === 'v' && o.women && <Toggle checked={o.spouses} onChange={v => set({ spouses: v })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
-            {o.mode !== 'f' && o.women && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
-            {o.mode !== 'f' && <Toggle checked={o.colors} onChange={v => set({ colors: v })} label={t('opt_colors')} />}
-            <Toggle checked={o.legend} onChange={v => set({ legend: v })} label={t('opt_legend')} />
-            <Toggle checked={o.hideLiving} onChange={v => set({ hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />
-          </div>
+          {table ? (
+            <div class="list">
+              <Toggle checked={o.women} onChange={v => set({ women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />
+              {o.women && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
+              <Toggle checked={o.colors} onChange={v => set({ colors: v })} label={t('opt_gen_colors')} sub={t('opt_gen_colors_sub')} />
+            </div>
+          ) : (
+            <div class="list">
+              <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />
+              <Toggle checked={o.dates} onChange={v => set({ dates: v })} label={t('opt_dates')} />
+              {o.mode !== 'f' && <Toggle checked={o.women} onChange={v => set({ women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />}
+              {o.mode === 'v' && o.women && <Toggle checked={o.spouses} onChange={v => set({ spouses: v })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
+              {o.mode !== 'f' && o.women && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
+              {o.mode !== 'f' && <Toggle checked={o.colors} onChange={v => set({ colors: v })} label={t('opt_colors')} />}
+              <Toggle checked={o.legend} onChange={v => set({ legend: v })} label={t('opt_legend')} />
+              <Toggle checked={o.hideLiving} onChange={v => set({ hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />
+            </div>
+          )}
         </div>
       </div>
     </div>

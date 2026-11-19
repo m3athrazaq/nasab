@@ -62,6 +62,7 @@ export const viewSheet = signal(false);   // tree display options
 export const focusRequest = signal(null); // { id, ts } — ask the tree to centre on someone
 export const familiesSheet = signal(false); // the list of families (switch, add, rename, delete)
 export const newFamily = signal(false);     // starting a new family (full screen, like the first start)
+export const kidsOrderSheet = signal(null); // person id: the order of his children (by age or by hand)
 
 export const openPerson = id => { personSheet.value = id; };
 export const openAdd = (kind, of, extra = {}) => { addSheet.value = { kind, of, ...extra }; };

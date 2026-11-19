@@ -148,9 +148,7 @@ export function buildPoster(ix, s, opts, env) {
     const gens = mode === 'f' ? Math.max(1, ...L.slots.filter(x => x.id).map(x => x.g + 1)) : Math.max(0, ...L.nodes.map(x => x.depth)) - (L.firstRow || 0) + 1;
     const now = env.today || new Date();
     const today = makeD({ cal: 'g', y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() });
-    const line = lang.value === 'ar'
-      ? `${count(n, 'person')} في ${count(gens, 'generation')} — حتى ${fmtDate(today, { alt: false })}`
-      : `${count(n, 'person')} in ${count(gens, 'generation')} — as of ${fmtDate(today, { alt: false })}`;
+    const line = countLine(n, gens, today, opts.by);
     const fs2 = 10 * u;
     y += fs2 + 7 * u;
     scene.push({ t: 'text', x: cx, y, s: line, font: th.fonts.text, size: fs2, fill: th.ink3, w: measure(th.fonts.text, line, fs2) });
@@ -170,6 +168,14 @@ export function buildPoster(ix, s, opts, env) {
   scene.push({ t: 'g', tf: [scale, tx, ty], items: chart.items });
   const nameSize = (mode === 'f' ? 9 : L.M.nameSize || 12) * scale;
   return { W, H, scene, scale, nameSize, warn: nameSize < 5.5, theme: th, people: mode === 'f' ? 0 : L.nodes.length };
+}
+/** "85 شخصاً في 6 أجيال — حتى 19 نوفمبر 2026 — إعداد: …" */
+export function countLine(n, gens, today, by = '') {
+  const ar = lang.value === 'ar';
+  const prep = by ? (ar ? ' — إعداد: ' : ' — prepared by ') + by : '';
+  return (ar
+    ? `${count(n, 'person')} في ${count(gens, 'generation')} — حتى ${fmtDate(today, { alt: false })}`
+    : `${count(n, 'person')} in ${count(gens, 'generation')} — as of ${fmtDate(today, { alt: false })}`) + prep;
 }
 function titleHeight(u, head, sub) { return (head ? 25 : 0) * u + 46 * u * 0.95 + 22 * u + (sub ? 17.5 : 0) * u + 17 * u + 16 * u; }
 function legendHeight(u, opts) { return opts.legend === false ? 8 * u : 40 * u; }
@@ -215,9 +221,5 @@ function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
     items.push({ t: 'text', x: tx, y: cy + fs * 0.35, s: p.label, font, size: fs, fill: th.ink2, w: lw });
     x += (ar ? -1 : 1) * (w + gap);
   });
-  // maker's mark
-  const mark = ar ? 'صُنعت بتطبيق نَسَب' : 'Made with Nasab';
-  const ms = 7.5 * u;
-  items.push({ t: 'text', x: W / 2, y: cy + 16 * u, s: mark, font, size: ms, fill: th.ink3, w: measure(font, mark, ms), op: 0.8 });
   return items;
 }

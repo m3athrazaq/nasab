@@ -29,10 +29,18 @@ const PEOPLE = [
 ];
 const MARRIAGES = [
   ['id', 'x_id', 12, 'in'], ['h', 'x_husband_id', 12, 'in'], ['hName', 'x_husband', 26, 'info'], ['w', 'x_wife_id', 12, 'in'], ['wName', 'x_wife', 26, 'info'],
-  ['st', 'x_status', 10, 'in'], ['md', 'x_married', 13, 'in'], ['ed', 'x_ended', 13, 'in'], ['ord', 'x_order', 7, 'in'], ['kids', 'x_children_n', 9, 'info'], ['note', 'x_note', 30, 'in']
+  ['st', 'x_status', 10, 'in'], ['md', 'x_married', 13, 'in'], ['ed', 'x_ended', 13, 'in'], ['ord', 'x_order', 7, 'in'], ['kids', 'x_children_n', 9, 'info'], ['ko', 'x_kids_order', 15, 'in'], ['note', 'x_note', 30, 'in']
 ];
 const INK = 'FF231C17', RED = 'FFA3271F', SOFT = 'FFF4DEDB', GOLD = 'FFF5E9CC', GREY = 'FFF2F1EC';
 const FONT = 'Arial';
+/* a couple's own order for their children, as written in the sheet */
+const KO_LABEL = { old: 'kids_old', young: 'kids_young', manual: 'kids_mine' };
+const koOf = v => {
+  const s = str(v).toLowerCase();
+  if (!s) return '';
+  for (const [k, label] of Object.entries(KO_LABEL)) if (s === k || both(label).includes(s)) return k;
+  return both('kids_manual').includes(s) ? 'manual' : '';
+};
 const both = key => [AR[key], EN[key]].filter(Boolean).map(x => String(x).trim().toLowerCase());
 
 export async function exportExcel(s, { photos = true, onProgress } = {}) {
@@ -108,7 +116,7 @@ export async function exportExcel(s, { photos = true, onProgress } = {}) {
   for (const id of Object.keys(ix.U)) {
     const u = ix.U[id];
     const nm = x => (x && ix.P[x] ? lineageText(ix.paternalLine(x, 3).map(y => ix.P[y].n || '؟'), { gender: ix.P[x].g, lang: L }) : '');
-    const added = mws.addRow({ id, h: u.h, hName: nm(u.h), w: u.w, wName: nm(u.w), st: u.st === 'd' ? T('divorced') : T('married'), md: u.md, ed: u.ed, ord: u.ord || '', kids: ix.childrenOfUnion(id).length, note: u.note });
+    const added = mws.addRow({ id, h: u.h, hName: nm(u.h), w: u.w, wName: nm(u.w), st: u.st === 'd' ? T('divorced') : T('married'), md: u.md, ed: u.ed, ord: u.ord || '', kids: ix.childrenOfUnion(id).length, ko: u.ko ? T(KO_LABEL[u.ko]) : '', note: u.note });
     added.font = { name: FONT };
   }
   /* how to write the tree in Excel */
@@ -241,7 +249,7 @@ export async function readExcel(buffer) {
       const g = k => (um.has(k) ? row.getCell(um.get(k)).value : null);
       const h = str(g('h')), w = str(g('w'));
       if (!h && !w) return;
-      unions.push({ id: str(g('id')) || 'u' + i, h, w, st: divorced.has(str(g('st')).toLowerCase()) ? 'd' : 'm', md: cellDate(g('md')), ed: cellDate(g('ed')), ord: +str(g('ord')) || 0, note: str(g('note')) });
+      unions.push({ id: str(g('id')) || 'u' + i, h, w, st: divorced.has(str(g('st')).toLowerCase()) ? 'd' : 'm', md: cellDate(g('md')), ed: cellDate(g('ed')), ord: +str(g('ord')) || 0, ko: koOf(g('ko')), note: str(g('note')) });
     });
   }
   // children → the union of their father and mother (made when the marriages sheet does not have it)

@@ -12,6 +12,8 @@ export const LIMITS = { people: 20000, unions: 20000, text: 120, name: 80, note:
 export const LS_KEY = 'nasab.state.v1';
 export const ID_RE = /^[a-z0-9]{4,32}$/;
 export const VIEW_MODES = ['v', 'h', 'r', 'f'];
+/** orders of brothers and sisters: eldest first, youngest first, as entered (or arranged by hand) */
+export const KIDS_ORDERS = ['old', 'young', 'manual'];
 
 export function defaultSettings() {
   return {
@@ -69,7 +71,9 @@ export function sUnion(u) {
     id: u.id,
     h: u.h == null ? '' : String(u.h).trim().slice(0, 40), w: u.w == null ? '' : String(u.w).trim().slice(0, 40),
     st: oneOf(u.st, ['m', 'd'], 'm'), md: cleanD(u.md), ed: cleanD(u.ed), note: note(u.note).slice(0, 1000),
-    ord: int(u.ord, 0, 99, 0), at: finite(+u.at, Date.now())
+    ord: int(u.ord, 0, 99, 0), at: finite(+u.at, Date.now()),
+    // how the couple's children are ordered, chosen from a parent's card ('' = the app's setting)
+    ko: oneOf(u.ko, KIDS_ORDERS, '')
   };
 }
 const uniqueId = (v, used) => { const s = v == null ? '' : String(v).trim(); const id = ID_RE.test(s) && !used.has(s) ? s : uid(); used.add(id); return id; };
@@ -88,7 +92,7 @@ export function sanitizeState(raw, nested = false) {
     lang: oneOf(s.lang, ['ar', 'en'], 'ar'), theme: oneOf(s.theme, ['auto', 'light', 'dark'], 'auto'), digits: oneOf(s.digits, ['latn', 'arab'], 'latn'),
     cal: oneOf(s.cal, ['entered', 'g', 'h'], 'entered'), both: s.both == null ? ds.both : bool(s.both),
     style: oneOf(s.style, ['bin', 'plain'], 'bin'), depth: s.depth == null ? ds.depth : int(s.depth, 0, 12, ds.depth),
-    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), kidsOrder: oneOf(s.kidsOrder, ['old', 'young', 'manual'], ds.kidsOrder), onboarded: bool(s.onboarded),
+    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), kidsOrder: oneOf(s.kidsOrder, KIDS_ORDERS, ds.kidsOrder), onboarded: bool(s.onboarded),
     lock: typeof s.lock === 'string' && /^[a-f0-9]{64}$/.test(s.lock) ? s.lock : '',
     lockSalt: typeof s.lockSalt === 'string' && /^[a-f0-9]{16,64}$/.test(s.lockSalt) ? s.lockSalt : '',
     lockLen: int(s.lockLen, 4, 8, 0)
@@ -169,6 +173,9 @@ export function sPoster(o) {
   o = o && typeof o === 'object' ? o : {};
   const out = {};
   for (const k of ['theme', 'layout', 'paper', 'orient', 'title', 'sub', 'root', 'kind']) if (typeof o[k] === 'string') out[k] = str(o[k], 120);
+  if (typeof o.by === 'string') out.by = str(o.by, 80);
+  if (o.gpaper != null) out.gpaper = oneOf(o.gpaper, ['A4', 'A3', 'A2', 'A1', 'A0', 'auto'], 'auto');
+  if (o.gdir != null) out.gdir = oneOf(o.gdir, ['ltr', 'rtl'], 'ltr');
   for (const k of ['photos', 'dates', 'spouses', 'dKids', 'women', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats']) if (o[k] != null) out[k] = bool(o[k]);
   for (const k of ['gens']) if (o[k] != null) out[k] = int(o[k], 0, 30, 0);
   if (o.fromGen != null) out.fromGen = int(o.fromGen, 1, 30, 1);
