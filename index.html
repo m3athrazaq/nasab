@@ -173,6 +173,11 @@ button.row:active, a.row:active { background: var(--paper-2); }
 .famdot.on { color: var(--paper); background: var(--madder); }
 .famdot svg { width: 20px; height: 20px; }
 .group-h { display: flex; align-items: baseline; gap: 8px; padding: 20px 4px 8px; font-weight: 600; font-size: 14.5px; color: var(--ink-2); }
+.looks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lookopt { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px 9px; border-radius: var(--r-md, 12px); border: 1.5px solid var(--rule); background: var(--sheet); color: var(--ink-2); font: inherit; font-size: 13.5px; }
+.lookopt svg { color: var(--ink-3); }
+.lookopt[aria-checked="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.lookopt[aria-checked="true"] svg { color: var(--madder); }
 .list.ko .row { gap: 10px; padding-inline-end: 6px; min-height: 56px; }
 .list.ko .kn { width: 22px; text-align: center; font-size: 13px; color: var(--ink-3); flex: none; font-variant-numeric: tabular-nums; }
 .list.ko .iconbtn { width: 40px; height: 40px; }
@@ -423,6 +428,6 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 <body>
 <div id="app"><div class="boot" role="status" aria-live="polite"><div class="boot-mark">نَسَب</div></div></div>
 <noscript><p style="padding:24px">يحتاج «نَسَب» إلى تفعيل JavaScript.</p></noscript>
-<script src="app.js?v=782f2ed497f7" integrity="sha384-FCAnYDqb4NXJS4U+1jLUmB+bhRI2RFWZF/oKocfn3g9dpeECGO6s3nmjpj4+HvnZ"></script>
+<script src="app.js?v=6062a6216cb4" integrity="sha384-zbo9Qfm1dsfoxp82IjdEIkXPUs8AGglYvOHhAe+hNAtnM3gc+FQ/yhS8rm+g3nyy"></script>
 </body>
 </html>

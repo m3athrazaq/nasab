@@ -6,7 +6,10 @@ import { hierarchy, tree } from 'd3-hierarchy';
 /* sizes in chart units (1 unit = 1 CSS px on screen at zoom 1, 1 pt in a PDF before scaling) */
 export const METRICS = {
   v: { R: 21, nameSize: 15, yearSize: 10.5, nameGap: 18, yearGap: 14, w: 96, gapSib: 10, gapCousin: 26, level: 118, spouseSize: 10 },
+  // the name inside the shape (a card): no seal, so generations stand closer
+  vi: { R: 21, nameSize: 14.5, yearSize: 10, w: 96, gapSib: 10, gapCousin: 26, level: 100, spouseSize: 10, cardH: 32, cardHY: 46 },
   h: { R: 15, nameSize: 14, yearSize: 10, w: 168, h: 46, gapSib: 8, gapCousin: 18, level: 216, spouseSize: 9.5 },
+  hi: { R: 15, nameSize: 14, yearSize: 10, w: 148, h: 46, gapSib: 8, gapCousin: 18, level: 194, spouseSize: 9.5 },
   r: { R: 13, nameSize: 13.5, yearSize: 8.5, ring: 122, trunk: 74 },
   f: { r0: 70, ring: 96 }
 };
@@ -65,6 +68,10 @@ export function descendantData(ix, root, { dKids = false, women = true, collapse
 
 /** one person's card: what is shown decides its height (names, years, spouse line) */
 function nodeBox(mode, M, opts) {
+  if (mode === 'v' && opts.inside) {
+    const cardH = opts.dates ? M.cardHY : M.cardH;
+    return { top: cardH / 2, bottom: cardH / 2 + (opts.spouses ? 15 : 0) + 4, cardH };
+  }
   if (mode === 'v') {
     const top = M.R;
     let bottom = M.R + M.nameGap;
@@ -77,7 +84,8 @@ function nodeBox(mode, M, opts) {
 
 export function layoutDescendants(ix, root, opts = {}) {
   const mode = opts.mode || 'v';
-  const M = { ...METRICS[mode], ...(opts.metrics || {}) };
+  const inside = !!opts.inside && mode !== 'f';
+  const M = { ...METRICS[inside && METRICS[mode + 'i'] ? mode + 'i' : mode], ...(opts.metrics || {}) };
   const data = descendantData(ix, root, opts);
   if (!data) return null;
   const h = hierarchy(data, d => d.children);
@@ -136,7 +144,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       });
     }
     const b = bounds(nodes, mode === 'v' ? { l: M.w / 2 + 4, r: M.w / 2 + 4, t: box.top + 4, b: box.bottom + 18 } : { l: M.w / 2 + 6, r: M.w / 2 + 6, t: M.h / 2 + 4, b: M.h / 2 + 14 });
-    return { mode, M, box, nodes, links, groups, bounds: b, rtl, ...generationInfo(data) };
+    return { mode, M, box, nodes, links, groups, bounds: b, rtl, inside, ...generationInfo(data) };
   }
   if (mode === 'r') {
     const span = opts.span || 200; // degrees of the canopy
@@ -184,7 +192,7 @@ export function layoutDescendants(ix, root, opts = {}) {
         x0 = Math.min(x0, px - 8); x1 = Math.max(x1, px + 8); y0 = Math.min(y0, py - 8); y1 = Math.max(y1, py + 8);
       }
     }
-    return { mode, M, nodes, links, groups: [], bounds: { x0, y0, x1, y1 }, rtl: opts.rtl !== false, ...generationInfo(data) };
+    return { mode, M, nodes, links, groups: [], bounds: { x0, y0, x1, y1 }, rtl: opts.rtl !== false, inside, ...generationInfo(data) };
   }
   return null;
 }

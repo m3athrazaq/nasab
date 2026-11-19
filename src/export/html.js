@@ -8,7 +8,7 @@ import { bufToB64, esc } from '../core/util.js';
 import { photoJpegBytes } from '../core/photos.js';
 import { defaultTitles } from './poster.js';
 
-export async function exportHtml(s, { photos = true, hideLiving = true, notes = true, dKids = false, women = true } = {}) {
+export async function exportHtml(s, { photos = true, hideLiving = true, notes = true, dKids = false, women = true, inside = false } = {}) {
   const ix = buildIndex(s);
   const root = s.root && ix.P[s.root] ? s.root : ix.defaultRoot(s.me);
   if (!root) throw new Error('empty');
@@ -41,7 +41,7 @@ export async function exportHtml(s, { photos = true, hideLiving = true, notes = 
   const unions = {};
   for (const [id, u] of Object.entries(ix.U)) unions[id] = { id, h: u.h, w: u.w, st: u.st, md: u.md, ord: u.ord };
   const titles = defaultTitles(ix, root);
-  const data = { v: 1, lang: L, title: (titles.head ? titles.head + ' ' : '') + titles.title, sub: titles.sub, root, me: '', dKids, women, people, unions };
+  const data = { v: 1, lang: L, title: (titles.head ? titles.head + ' ' : '') + titles.title, sub: titles.sub, root, me: '', dKids, women, inside: !!inside, people, unions };
   const viewer = await fetch('vendor/viewer.js', { cache: 'force-cache', integrity: __VIEWER_SRI__ }).then(r => { if (!r.ok) throw new Error('viewer'); return r.text(); });
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   const html = TEMPLATE

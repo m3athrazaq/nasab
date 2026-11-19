@@ -41,7 +41,7 @@ let mode = 'v', sel = null, L = null;
 const view = { x: 0, y: 0, k: 1 };
 const svgHost = $('#tree');
 function render() {
-  L = layoutDescendants(ix, D.root, { mode, dKids: !!D.dKids, women: D.women !== false, dates: true, rtl: ar });
+  L = layoutDescendants(ix, D.root, { mode, dKids: !!D.dKids, women: D.women !== false, dates: true, rtl: ar, inside: !!D.inside });
   const thread = sel ? threadKeys(L, sel) : new Set();
   const sc = drawDescendants(L, { ...th, fonts: { name: 'naskhB', years: 'ui', initial: 'naskhB', title: 'naskhB', text: 'ui' } }, { info, measure, photos: true, dates: true, colors: true, bands: true, genLabel: T.gen, selected: sel, thread, me: D.me, num: n => n });
   const css = `text{font-family:${ar ? '"Noto Naskh Arabic","Geeza Pro","Traditional Arabic",serif' : 'Georgia,serif'}}`;

@@ -132,7 +132,7 @@ export function ExportScreen() {
 }
 
 function HtmlSheet({ onClose }) {
-  const [o, setO] = useState({ photos: true, hideLiving: true, notes: true, women: state.value.view.women !== false });
+  const [o, setO] = useState({ photos: true, hideLiving: true, notes: true, women: state.value.view.women !== false, inside: !!state.value.view.inside });
   const make = () => runExport(t('making_file'), async () => {
     const { exportHtml } = await import('../../export/html.js');
     const { blob } = await exportHtml(state.value, { ...o, dKids: state.value.view.dKids });
@@ -147,6 +147,7 @@ function HtmlSheet({ onClose }) {
         <Toggle checked={o.hideLiving} onChange={v => setO({ ...o, hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />
         <Toggle checked={o.notes} onChange={v => setO({ ...o, notes: v })} label={t('include_notes')} />
         <Toggle checked={o.women} onChange={v => setO({ ...o, women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />
+        <Toggle checked={o.inside} onChange={v => setO({ ...o, inside: v })} label={t('look_inside_opt')} sub={t('look_inside_sub')} />
       </div>
       <p class="hint">{t('html_private')}</p>
       <button class="btn wide" style="margin-top:14px" onClick={make}><Icon name="share" />{t('make_share')}</button>

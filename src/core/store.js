@@ -26,7 +26,8 @@ export function defaultSettings() {
   };
 }
 export function defaultView() {
-  return { mode: 'v', spouses: false, dKids: false, women: true, photos: true, dates: true, colors: true, bands: true, collapsed: [] };
+  // inside: each person's name written inside his shape (else the initial in the seal and the name under it)
+  return { mode: 'v', spouses: false, dKids: false, women: true, photos: true, dates: true, colors: true, bands: true, inside: false, collapsed: [] };
 }
 export function defaultState() {
   return {
@@ -150,7 +151,7 @@ export function sanitizeState(raw, nested = false) {
   const v = raw.view || {};
   d.view = {
     mode: oneOf(v.mode, VIEW_MODES, 'v'), spouses: bool(v.spouses), dKids: bool(v.dKids), women: v.women == null ? true : bool(v.women),
-    photos: v.photos == null ? true : bool(v.photos), dates: v.dates == null ? true : bool(v.dates), colors: v.colors == null ? true : bool(v.colors), bands: v.bands == null ? true : bool(v.bands),
+    photos: v.photos == null ? true : bool(v.photos), dates: v.dates == null ? true : bool(v.dates), colors: v.colors == null ? true : bool(v.colors), bands: v.bands == null ? true : bool(v.bands), inside: bool(v.inside),
     collapsed: (Array.isArray(v.collapsed) ? v.collapsed : []).map(pid).filter(Boolean).slice(0, LIMITS.collapsed)
   };
   d.poster = sPoster(raw.poster);
@@ -176,7 +177,7 @@ export function sPoster(o) {
   if (typeof o.by === 'string') out.by = str(o.by, 80);
   if (o.gpaper != null) out.gpaper = oneOf(o.gpaper, ['A4', 'A3', 'A2', 'A1', 'A0', 'auto'], 'auto');
   if (o.gdir != null) out.gdir = oneOf(o.gdir, ['ltr', 'rtl'], 'ltr');
-  for (const k of ['photos', 'dates', 'spouses', 'dKids', 'women', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats']) if (o[k] != null) out[k] = bool(o[k]);
+  for (const k of ['photos', 'dates', 'spouses', 'dKids', 'women', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats', 'inside']) if (o[k] != null) out[k] = bool(o[k]);
   for (const k of ['gens']) if (o[k] != null) out[k] = int(o[k], 0, 30, 0);
   if (o.fromGen != null) out.fromGen = int(o.fromGen, 1, 30, 1);
   return out;

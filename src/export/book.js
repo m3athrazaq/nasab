@@ -24,7 +24,7 @@ export function innerTheme(th) {
 }
 
 /**
- * opts: { theme, root, dKids, photos }; env: { measure, photoIds, today }
+ * opts: { theme, root, dKids, photos, inside (names inside the shapes) }; env: { measure, photoIds, today }
  * → { pages: [{ W, H, scene }], title }
  */
 export function buildBook(ix, s, opts, env) {
@@ -165,7 +165,7 @@ export function buildBook(ix, s, opts, env) {
       return pages.length - 1;
     } };
   };
-  const lay = (id, maxGen = 0) => layoutDescendants(ix, id, { mode: 'v', dKids: !!opts.dKids, dates: true, rtl, metrics: { w: 104 }, maxGen });
+  const lay = (id, maxGen = 0) => layoutDescendants(ix, id, { mode: 'v', dKids: !!opts.dKids, dates: true, rtl, metrics: { w: 104 }, maxGen, inside: !!opts.inside });
   const MIN_NAME = 6.2;
   // the whole tree on one page when it is readable, else its top
   {

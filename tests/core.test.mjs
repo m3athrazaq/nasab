@@ -440,6 +440,28 @@ await section('poster options', async () => {
   }
 });
 
+/* ---------------- each name inside its shape ---------------- */
+await section('names inside the shapes', async () => {
+  const fontkit = require('@pdf-lib/fontkit');
+  const bidi = require('bidi-js')();
+  const fonts = {};
+  for (const [k, f] of Object.entries({ naskhB: 'NotoNaskhArabic-Bold', naskh: 'NotoNaskhArabic-Regular', ui: 'ReadexPro-Regular', uiB: 'ReadexPro-SemiBold', ruqaa: 'ArefRuqaa-Bold', amiri: 'Amiri-Regular', amiriB: 'Amiri-Bold', kufi: 'ReemKufi-Bold' })) fonts[k] = fs.readFileSync(path.join(ROOT, 'fonts/pdf', f + '.ttf'));
+  const engine = createTextEngine({ fontkit, bidi, fonts, dir: 'rtl' });
+  const env = { measure: engine.measure.bind(engine), photoIds: new Set() };
+  const texts = items => { const out = []; const walk = l => l.forEach(i => { if (i.t === 'text') out.push(i.s); if (i.items) walk(i.items); }); walk(items); return out; };
+  const people = [...generations(ix, demo.root).keys()].map(id => ix.P[id].n);
+  for (const mode of ['v', 'h', 'r']) {
+    const seal = buildPoster(ix, demo, { mode, theme: 'manuscript', paper: 'A3' }, env);
+    const card = buildPoster(ix, demo, { mode, theme: 'manuscript', paper: 'A3', inside: true }, env);
+    const letters = P => texts(P.scene).filter(x => [...x].length === 1).length;
+    const all = texts(card.scene);
+    check(`${mode}: names inside the shapes, no first letters`, letters(seal) > 20 && letters(card) === 0 && people.every(n => all.includes(n)), `${letters(seal)} → ${letters(card)}`);
+  }
+  const L = layoutDescendants(ix, demo.root, { mode: 'v', dates: true, inside: true });
+  check('cards stand closer than seals', L.inside && L.M.level < layoutDescendants(ix, demo.root, { mode: 'v', dates: true }).M.level && L.box.cardH > 30);
+  eq('the choice is kept, for the tree and for prints', [sanitizeState({ view: { inside: true } }).view.inside, sanitizeState({ poster: { inside: true } }).poster.inside, sanitizeState({}).view.inside], [true, true, false]);
+});
+
 /* ---------------- the table of generations ---------------- */
 const GEN_COLORS_USED = scene => /#FFC072|#9CE159|#FFE061|#64B2DF/i.test(JSON.stringify(scene));
 await section('table of generations', async () => {

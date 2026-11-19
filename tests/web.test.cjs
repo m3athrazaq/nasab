@@ -4,7 +4,7 @@
 // Prints one PASS/FAIL line per check, and "PASS no JS errors" when no page had a script error.
 // Covers: first start from a typed full name, saving across reloads, every screen in Arabic and English
 // and all four tree shapes, adding children and Undo, deleting from the tree, the women filter, the order
-// of children (the app's, and one father's from his card), the table of generations, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
+// of children (the app's, and one father's from his card), names inside the shapes, the table of generations, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
 // certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone" and as a
 // new family,
 // broken and crafted files, the PIN lock, offline use, and refusing to run inside a frame.
@@ -259,6 +259,29 @@ let browser;
     check(hint > 0 && d.buf.subarray(0, 5).toString('latin1') === '%PDF-' && (await pdfPages(d.buf)) === 1, `a poster from the third generation, without women (${d.buf.length} bytes)`);
     const s = await stored(page);
     check(s.poster.fromGen === 3 && s.poster.women === false, 'the poster remembers where it starts');
+    await ctx.close();
+  }
+  {
+    // each person's name inside his shape, instead of the first letter with the name under it
+    const { ctx, page } = await open({ state: sample });
+    await page.goto(BASE + '#/tree');
+    await tabs(page);
+    await page.waitForTimeout(900);
+    const letters = () => page.evaluate(() => [...document.querySelectorAll('svg g[data-id] text')].filter(x => [...x.textContent.trim()].length === 1).length);
+    const before = await letters();
+    await page.locator('.tree-top .iconbtn').nth(1).click();
+    await page.locator('.lookopt', { hasText: AR.look_inside }).click();
+    await page.waitForTimeout(800);
+    const after = await letters();
+    await settle(page);
+    let s = await stored(page);
+    check(before > 10 && after === 0 && s.view.inside === true, `the names go inside the shapes (${before} first letters → ${after})`);
+    await page.keyboard.press('Escape');
+    await go(page, 'poster');
+    await page.waitForTimeout(2500);
+    const chosen = await page.locator('.screen .lookopt[aria-checked="true"]').textContent();
+    const d = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'poster-inside.pdf');
+    check(chosen.includes(AR.look_inside) && d.buf.subarray(0, 5).toString('latin1') === '%PDF-', 'the poster follows: names inside the shapes');
     await ctx.close();
   }
   {

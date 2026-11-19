@@ -28,6 +28,18 @@ export function fitText(measure, s, font, size, maxW, minScale = 0.72) {
   return { s: out, size: size2, w: measure(font, out, size2) };
 }
 
+/** a rounded box centred at (cx, cy), turned by deg (a pill when r is half the height), as a path */
+export function boxPath(cx, cy, w, h, r, deg = 0) {
+  r = Math.max(0, Math.min(r, h / 2, w / 2));
+  const a = rad(deg), c = Math.cos(a), sn = Math.sin(a), X = w / 2, Y = h / 2;
+  const n1 = v => (Math.round(v * 100) / 100).toString();
+  const P = (x, y) => n1(cx + x * c - y * sn) + ' ' + n1(cy + x * sn + y * c);
+  const A = (x, y) => `A${n1(r)} ${n1(r)} 0 0 1 ${P(x, y)}`;
+  return `M${P(-X + r, -Y)}L${P(X - r, -Y)}${A(X, -Y + r)}L${P(X, Y - r)}${A(X - r, Y)}L${P(-X + r, Y)}${A(-X, Y - r)}L${P(-X, -Y + r)}${A(-X + r, -Y)}Z`;
+}
+/** the fill of a person's shape: his branch's tint, or hollow once deceased */
+const shapeFill = (th, inf, col) => (inf.dead ? th.deadFill : mix(col, th.paper, th.sealFillAlpha));
+
 /** the seal of a person: square (rounded) for men, round for women; hollow once deceased */
 function seal(items, th, cx, cy, R, inf, col, { dup = false, photos = true, measure, ring = '', ringW = 2.2 }) {
   const female = inf.g === 'f';
@@ -72,7 +84,7 @@ export function drawDescendants(L, th, o) {
       const label = o.genLabel ? o.genLabel(d + base) : '';
       const odd = (d + base) % 2 === 1;
       if (L.mode === 'v') {
-        const y0 = d * M.level - M.R - 10, y1 = d * M.level + L.box.bottom + 6;
+        const y0 = d * M.level - L.box.top - 10, y1 = d * M.level + L.box.bottom + 6;
         if (odd) items.push({ t: 'rect', x: b.x0 - 60, y: y0, w: b.x1 - b.x0 + 120, h: y1 - y0, r: 8, fill: th.band });
         if (label) {
           const size = 11;
@@ -138,7 +150,27 @@ export function drawDescendants(L, th, o) {
     const g = { t: 'g', key: n.key, id: n.id, dup: n.dup, items: [] };
     const ring = o.selected === n.id ? th.thread : o.me === n.id ? th.gold : '';
     const nameInk = n.dup ? th.ink3 : th.ink;
-    if (L.mode === 'v') {
+    if (L.mode === 'v' && L.inside) {
+      // a card with the name (and the years) inside: square corners for men, round ends for women
+      const ch = L.box.cardH, cw = M.w - 8, female = inf.g === 'f';
+      const x0 = n.x - cw / 2, y0 = n.y - ch / 2, r = female ? ch / 2 : 8;
+      if (ring) g.items.push({ t: 'rect', x: x0 - 3.5, y: y0 - 3.5, w: cw + 7, h: ch + 7, r: r + 3.5, fill: 'none', stroke: ring, sw: 2.2 });
+      g.items.push({ t: 'rect', x: x0, y: y0, w: cw, h: ch, r, fill: shapeFill(th, inf, col), stroke: col, sw: n.depth === 0 ? 2.3 : 1.6, dash: n.dup ? [3, 2.5] : null });
+      const avail = cw - (female ? ch * 0.55 : 12);
+      const two = o.dates && inf.years;
+      const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize, avail);
+      g.items.push({ t: 'text', x: n.x, y: two ? n.y + 0.5 : n.y + nm.size * 0.36, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w });
+      if (two) {
+        const yr = fitText(measure, inf.years, th.fonts.years, M.yearSize, avail);
+        g.items.push({ t: 'text', x: n.x, y: n.y + 15, s: yr.s, font: th.fonts.years, size: yr.size, fill: th.ink2, w: yr.w });
+      }
+      if (o.spouses && inf.spouses) {
+        const sp = fitText(measure, inf.spouses, th.fonts.years, M.spouseSize, M.w);
+        g.items.push({ t: 'text', x: n.x, y: n.y + ch / 2 + 13, s: sp.s, font: th.fonts.years, size: sp.size, fill: th.ink3, w: sp.w });
+      }
+      g.hit = { x: n.x - M.w / 2, y: y0 - 4, w: M.w, h: L.box.top + L.box.bottom + 8 };
+      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
+    } else if (L.mode === 'v') {
       const R = n.depth === 0 ? M.R * 1.12 : M.R;
       seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos, measure, ring });
       let y = n.y + M.R + M.nameGap - 1;
@@ -160,10 +192,17 @@ export function drawDescendants(L, th, o) {
       const w = M.w, h = M.h, x0 = n.x - w / 2, y0 = n.y - h / 2;
       const female = inf.g === 'f';
       if (ring) g.items.push({ t: 'rect', x: x0 - 3.5, y: y0 - 3.5, w: w + 7, h: h + 7, r: female ? h / 2 + 3.5 : 13.5, fill: 'none', stroke: ring, sw: 2.2 });
-      g.items.push({ t: 'rect', x: x0, y: y0, w, h, r: female ? h / 2 : 10, fill: th.pill, stroke: mix(col, th.line, 0.55), sw: 1, dash: n.dup ? [3, 2.5] : null });
-      const sx = L.rtl ? x0 + w - h / 2 : x0 + h / 2;
-      seal(g.items, th, sx, n.y, M.R, inf, col, { dup: n.dup, photos: o.photos, measure });
-      const tx0 = L.rtl ? x0 + 8 : sx + M.R + 6, tx1 = L.rtl ? sx - M.R - 6 : x0 + w - 8;
+      let tx0, tx1;
+      if (L.inside) {
+        // the card itself carries the branch colour and the name, no seal
+        g.items.push({ t: 'rect', x: x0, y: y0, w, h, r: female ? h / 2 : 10, fill: shapeFill(th, inf, col), stroke: col, sw: n.depth === 0 ? 2.2 : 1.4, dash: n.dup ? [3, 2.5] : null });
+        tx0 = x0 + (female ? h * 0.36 : 10); tx1 = x0 + w - (female ? h * 0.36 : 10);
+      } else {
+        g.items.push({ t: 'rect', x: x0, y: y0, w, h, r: female ? h / 2 : 10, fill: th.pill, stroke: mix(col, th.line, 0.55), sw: 1, dash: n.dup ? [3, 2.5] : null });
+        const sx = L.rtl ? x0 + w - h / 2 : x0 + h / 2;
+        seal(g.items, th, sx, n.y, M.R, inf, col, { dup: n.dup, photos: o.photos, measure });
+        tx0 = L.rtl ? x0 + 8 : sx + M.R + 6; tx1 = L.rtl ? sx - M.R - 6 : x0 + w - 8;
+      }
       const cx = (tx0 + tx1) / 2, avail = tx1 - tx0;
       const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize, avail);
       const two = o.dates && inf.years;
@@ -174,6 +213,32 @@ export function drawDescendants(L, th, o) {
       }
       g.hit = { x: x0, y: y0, w, h };
       if (n.hidden) badge(g.items, th, measure, L.rtl ? x0 - 14 : x0 + w + 14, n.y + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
+    } else if (L.inside) {
+      // canopy, the names inside: the founder on the trunk, the others in small frames on the branches
+      const female = inf.g === 'f', dash = n.dup ? [3, 2.5] : null, fill = shapeFill(th, inf, col);
+      const frame = (cx, cy, pw, ph, deg) => {
+        if (ring) g.items.push({ t: 'path', d: boxPath(cx, cy, pw + 7, ph + 7, female ? (ph + 7) / 2 : 7.5, deg), fill: 'none', stroke: ring, sw: 2 });
+        g.items.push({ t: 'path', d: boxPath(cx, cy, pw, ph, female ? ph / 2 : 4, deg), fill, stroke: col, sw: 1.3, dash });
+      };
+      if (n.depth === 0) {
+        g.items.push(...trunkPlaque(inf.name, n.x));
+        g.hit = { x: n.x - 60, y: n.y - 10, w: 120, h: M.trunk * 0.5 + 30 };
+      } else if (parents.has(n.key)) {
+        const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize * 0.92, M.ring * 0.62);
+        const ph = nm.size * 1.75, pw = nm.w + 16;
+        frame(n.x, n.y, pw, ph, 0);
+        g.items.push({ t: 'text', x: n.x, y: n.y + nm.size * 0.36, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w });
+        g.hit = { x: n.x - pw / 2 - 4, y: n.y - ph / 2 - 4, w: pw + 8, h: ph + 8 };
+      } else {
+        const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize * 0.92, M.ring - 2 * M.R - 8);
+        const ph = nm.size * 1.7, pw = nm.w + 14, off = pw / 2 - 3;
+        const c = Math.cos(rad(n.ang)), sn = Math.sin(rad(n.ang));
+        const cx = n.x + c * off, cy = n.y + sn * off;
+        frame(cx, cy, pw, ph, n.ang);
+        g.items.push({ t: 'text', x: cx, y: cy + nm.size * 0.34, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w, rot: upright(n.ang), rx: cx, ry: cy });
+        g.hit = { x: Math.min(n.x, n.x + c * pw) - ph / 2, y: Math.min(n.y, n.y + sn * pw) - ph / 2, w: Math.abs(c * pw) + ph, h: Math.abs(sn * pw) + ph };
+        if (n.hidden) badge(g.items, th, measure, n.x + c * (pw + 10), n.y + sn * (pw + 10), '+', col);
+      }
     } else {
       // canopy
       const root = n.depth === 0;

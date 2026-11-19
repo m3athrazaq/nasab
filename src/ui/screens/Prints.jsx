@@ -15,6 +15,7 @@ import { runExport, fileBase } from './Export.jsx';
 import { defaultTitles, fanTitles, genName } from '../../export/poster.js';
 import { generations } from '../../core/model.js';
 import { nameOf, lineOf } from '../people.js';
+import { PeopleLook } from './Tree.jsx';
 
 /* ---------- the preview: a page you can pinch and drag ---------- */
 function usePhotoUrls() {
@@ -137,11 +138,12 @@ export function PosterScreen() {
     photos: saved.photos !== false, dates: saved.dates !== false, spouses: !!saved.spouses, dKids: saved.dKids != null ? saved.dKids : s.view.dKids,
     women: saved.women != null ? saved.women : s.view.women !== false, fromGen: saved.fromGen || 1,
     colors: saved.colors !== false, legend: saved.legend !== false, hideLiving: !!saved.hideLiving,
-    by: saved.by || '', gpaper: saved.gpaper || 'auto', gdir: saved.gdir || 'ltr'
+    by: saved.by || '', gpaper: saved.gpaper || 'auto', gdir: saved.gdir || 'ltr',
+    inside: saved.inside != null ? saved.inside : !!s.view.inside
   }));
   const set = patch => setO(x => ({ ...x, ...patch }));
   useEffect(() => {
-    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, women: o.women, fromGen: o.fromGen, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving, by: o.by, gpaper: o.gpaper, gdir: o.gdir }), 600);
+    const tm = setTimeout(() => setPoster({ layout: o.mode, theme: o.theme, paper: o.paper, orient: o.orient, title: o.title, root: o.root, photos: o.photos, dates: o.dates, spouses: o.spouses, dKids: o.dKids, women: o.women, fromGen: o.fromGen, colors: o.colors, legend: o.legend, hideLiving: o.hideLiving, by: o.by, gpaper: o.gpaper, gdir: o.gdir, inside: o.inside }), 600);
     return () => clearTimeout(tm);
   }, [o]);
   const [warn, setWarn] = useState(null);
@@ -250,9 +252,10 @@ export function PosterScreen() {
               {o.women && <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
               <Toggle checked={o.colors} onChange={v => set({ colors: v })} label={t('opt_gen_colors')} sub={t('opt_gen_colors_sub')} />
             </div>
-          ) : (
-            <div class="list">
-              <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />
+          ) : (<>
+            {o.mode !== 'f' && <PeopleLook value={o.inside} onChange={v => set({ inside: v })} />}
+            <div class="list" style={o.mode !== 'f' ? 'margin-top:12px' : ''}>
+              {!(o.inside && o.mode !== 'f') && <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />}
               <Toggle checked={o.dates} onChange={v => set({ dates: v })} label={t('opt_dates')} />
               {o.mode !== 'f' && <Toggle checked={o.women} onChange={v => set({ women: v })} label={t('opt_women')} sub={t('opt_women_sub')} />}
               {o.mode === 'v' && o.women && <Toggle checked={o.spouses} onChange={v => set({ spouses: v })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
@@ -261,7 +264,7 @@ export function PosterScreen() {
               <Toggle checked={o.legend} onChange={v => set({ legend: v })} label={t('opt_legend')} />
               <Toggle checked={o.hideLiving} onChange={v => set({ hideLiving: v })} label={t('hide_living')} sub={t('hide_living_sub')} />
             </div>
-          )}
+          </>)}
         </div>
       </div>
     </div>
@@ -272,7 +275,7 @@ export function PosterScreen() {
 export function BookScreen() {
   const s = state.value, ix = IX.value, root = ROOT.value;
   const photoUrls = usePhotoUrls();
-  const [o, setO] = useState({ theme: (s.poster && s.poster.theme) || 'palm', root: '', dKids: s.view.dKids, photos: true });
+  const [o, setO] = useState({ theme: (s.poster && s.poster.theme) || 'palm', root: '', dKids: s.view.dKids, photos: true, inside: !!(s.poster && s.poster.inside != null ? s.poster.inside : s.view.inside) });
   const set = patch => setO(x => ({ ...x, ...patch }));
   const top = o.root && ix.P[o.root] ? o.root : root;
   const opts = { ...o, root: top };
@@ -307,8 +310,9 @@ export function BookScreen() {
           <div class="list"><PersonRow id={top} meta={t('descendants_n', { n: count(ix.descendants(top).size, 'person') })} onClick={() => pickPerson({ title: t('starts_from'), onPick: id => set({ root: id }) })} /></div>
         </div>
         <div class="section">
-          <div class="list">
-            <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />
+          <PeopleLook value={o.inside} onChange={v => set({ inside: v })} />
+          <div class="list" style="margin-top:12px">
+            {!o.inside && <Toggle checked={o.photos} onChange={v => set({ photos: v })} label={t('opt_photos')} />}
             <Toggle checked={o.dKids} onChange={v => set({ dKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />
           </div>
         </div>

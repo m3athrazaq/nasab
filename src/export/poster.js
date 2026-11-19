@@ -81,8 +81,9 @@ export function buildPoster(ix, s, opts, env) {
     chart = drawFan(L, th, o);
   } else {
     // wider cards in print (names are not cut as often)
-    const metrics = mode === 'v' ? { w: 104 } : mode === 'h' ? { w: 180 } : {};
-    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, women, fromGen, spouses: o.spouses, dates: o.dates, rtl, metrics, collapsed: new Set() });
+    const inside = !!opts.inside;
+    const metrics = mode === 'v' ? { w: 104 } : mode === 'h' ? { w: inside ? 160 : 180 } : {};
+    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, women, fromGen, spouses: o.spouses, dates: o.dates, rtl, metrics, inside, collapsed: new Set() });
     if (!L.nodes.length) return null; // nobody in that generation
     chart = drawDescendants(L, th, o);
   }
@@ -186,18 +187,21 @@ function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
   const parts = [];
   const ar = lang.value === 'ar';
   const R = 6 * u;
-  // shapes
+  // shapes (cards when the names are written inside them)
+  const card = !!(L && L.inside);
   const shape = (kind, col) => {
     const a = [];
-    if (kind === 'm') a.push({ t: 'rect', x: -R, y: -R, w: 2 * R, h: 2 * R, r: R * 0.34, fill: 'none', stroke: col, sw: 1.2 * u });
-    if (kind === 'f') a.push({ t: 'circle', cx: 0, cy: 0, r: R, fill: 'none', stroke: col, sw: 1.2 * u });
+    if (card && (kind === 'm' || kind === 'f')) a.push({ t: 'rect', x: -1.4 * R, y: -0.8 * R, w: 2.8 * R, h: 1.6 * R, r: kind === 'f' ? 0.8 * R : 0.3 * R, fill: 'none', stroke: col, sw: 1.2 * u });
+    else if (kind === 'm') a.push({ t: 'rect', x: -R, y: -R, w: 2 * R, h: 2 * R, r: R * 0.34, fill: 'none', stroke: col, sw: 1.2 * u });
+    else if (kind === 'f') a.push({ t: 'circle', cx: 0, cy: 0, r: R, fill: 'none', stroke: col, sw: 1.2 * u });
     if (kind === 'dot') a.push({ t: 'circle', cx: 0, cy: 0, r: R * 0.8, fill: col, stroke: 'none' });
     return a;
   };
   if (mode !== 'f') {
-    parts.push({ icon: shape('m', th.ink2), label: ar ? 'ذكر' : 'male' });
-    if (opts.women !== false) parts.push({ icon: shape('f', th.ink2), label: ar ? 'أنثى' : 'female' });
-    parts.push({ icon: [{ t: 'circle', cx: 0, cy: 0, r: R, fill: th.bg, stroke: th.ink3, sw: 1.2 * u }], label: ar ? 'المفرغ: متوفى' : 'hollow: deceased' });
+    const cw = card ? 1.4 : 1;
+    parts.push({ icon: shape('m', th.ink2), label: ar ? 'ذكر' : 'male', iw: cw });
+    if (opts.women !== false) parts.push({ icon: shape('f', th.ink2), label: ar ? 'أنثى' : 'female', iw: cw });
+    parts.push({ icon: card ? [{ t: 'rect', x: -1.4 * R, y: -0.8 * R, w: 2.8 * R, h: 1.6 * R, r: 0.3 * R, fill: th.bg, stroke: th.ink3, sw: 1.2 * u }] : [{ t: 'circle', cx: 0, cy: 0, r: R, fill: th.bg, stroke: th.ink3, sw: 1.2 * u }], label: ar ? 'المفرغ: متوفى' : 'hollow: deceased', iw: cw });
     if (opts.colors !== false && L.nodes) {
       const kids = L.nodes.filter(n => n.depth === 1 && !n.dup);
       for (const n of kids.slice(0, 8)) parts.push({ icon: shape('dot', branchColor(th, n.branch, true)), label: (ar ? 'فرع ' : '') + ix.P[n.id].n + (ar ? '' : "'s branch") });
@@ -208,16 +212,17 @@ function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
   }
   // lay out right to left (Arabic) centred
   const gap = 14 * u, ig = 5 * u;
-  const widths = parts.map(p => 2 * R + ig + measure(font, p.label, fs));
+  const iw = p => (p.iw || 1) * R; // half the icon's width
+  const widths = parts.map(p => 2 * iw(p) + ig + measure(font, p.label, fs));
   const total = widths.reduce((a, b) => a + b, 0) + gap * (parts.length - 1);
   let x = ar ? W / 2 + total / 2 : W / 2 - total / 2;
   const cy = y + 6 * u;
   parts.forEach((p, i) => {
-    const w = widths[i];
-    const iconX = ar ? x - R : x + R;
+    const w = widths[i], hw = iw(p);
+    const iconX = ar ? x - hw : x + hw;
     items.push({ t: 'g', tf: [1, iconX, cy], items: p.icon });
-    const lw = w - 2 * R - ig;
-    const tx = ar ? x - 2 * R - ig - lw / 2 : x + 2 * R + ig + lw / 2;
+    const lw = w - 2 * hw - ig;
+    const tx = ar ? x - 2 * hw - ig - lw / 2 : x + 2 * hw + ig + lw / 2;
     items.push({ t: 'text', x: tx, y: cy + fs * 0.35, s: p.label, font, size: fs, fill: th.ink2, w: lw });
     x += (ar ? -1 : 1) * (w + gap);
   });

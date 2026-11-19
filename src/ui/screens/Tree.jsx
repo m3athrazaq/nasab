@@ -73,8 +73,8 @@ function TreeCanvas() {
       const known = Math.max(0, ...ix.ancestors(fp, 8).values());
       return layoutFan(ix, fp, { gens: Math.min(6, Math.max(3, known + 1)), rtl });
     }
-    return layoutDescendants(ix, root, { mode: v.mode, dKids: v.dKids, women: v.women, spouses: v.spouses && v.women, dates: v.dates, rtl, collapsed: new Set(v.collapsed) });
-  }, [ix, root, v.mode, v.dKids, v.women, v.spouses, v.dates, collapsed, rtl, fp, fontsReady.value]);
+    return layoutDescendants(ix, root, { mode: v.mode, dKids: v.dKids, women: v.women, spouses: v.spouses && v.women, dates: v.dates, rtl, inside: v.inside, collapsed: new Set(v.collapsed) });
+  }, [ix, root, v.mode, v.dKids, v.women, v.spouses, v.dates, v.inside, collapsed, rtl, fp, fontsReady.value]);
   const info = useMemo(() => makeInfo(ix, s, {}), [ix, s.settings, lang.value]);
   const thread = useMemo(() => (L && sel && v.mode !== 'f' ? threadKeys(L, sel) : new Set()), [L, sel, v.mode]);
   const scene = useMemo(() => {
@@ -254,6 +254,32 @@ function RootSheet({ onClose }) {
   );
 }
 
+/**
+ * how each person is drawn: a seal with the first letter (or the photo) and the name under it, or the
+ * name written inside the shape. Two small pictures say which is which.
+ */
+export function PeopleLook({ value, onChange }) {
+  const pic = inside => (
+    <svg viewBox="0 0 56 34" width="56" height="34" aria-hidden="true">
+      {inside
+        ? <><rect x="5" y="7" width="46" height="20" rx="4" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="1.4" /><path d="M15 17h26" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" /></>
+        : <><rect x="19" y="2" width="18" height="18" rx="5" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="1.4" /><path d="M25.5 11.5h5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" /><path d="M14 28h28" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" /></>}
+    </svg>
+  );
+  return (
+    <div class="field">
+      <span class="lab">{t('look_people')}</span>
+      <div class="looks" role="radiogroup" aria-label={t('look_people')}>
+        {[false, true].map(x => (
+          <button key={String(x)} role="radio" aria-checked={value === x ? 'true' : 'false'} class="lookopt" onClick={() => onChange(x)}>
+            {pic(x)}<span>{t(x ? 'look_inside' : 'look_seal')}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** what the tree shows */
 export function ViewSheet() {
   if (!viewSheet.value) return null;
@@ -264,8 +290,9 @@ export function ViewSheet() {
     <Sheet onClose={close} title={t('view_options')}>
       <Seg value={v.mode} onChange={m => setView({ mode: m })} options={MODES.map(([m, , l]) => [m, t(l)])} label={t('view_mode')} />
       <p class="hint">{t('mode_hint_' + v.mode)}</p>
+      {v.mode !== 'f' && <PeopleLook value={v.inside} onChange={x => setView({ inside: x })} />}
       <div class="list" style="box-shadow:none;margin-top:12px;background:var(--paper-2)">
-        <Toggle checked={v.photos} onChange={x => setView({ photos: x })} label={t('opt_photos')} />
+        {!v.inside && <Toggle checked={v.photos} onChange={x => setView({ photos: x })} label={t('opt_photos')} />}
         <Toggle checked={v.dates} onChange={x => setView({ dates: x })} label={t('opt_dates')} />
         <Toggle checked={v.women} onChange={x => setView({ women: x })} label={t('opt_women')} sub={t('opt_women_sub')} />
         {v.women && <Toggle checked={v.spouses} onChange={x => setView({ spouses: x })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
