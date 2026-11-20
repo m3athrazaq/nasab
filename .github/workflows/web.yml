@@ -3,7 +3,7 @@
 # and undo, GEDCOM and Excel round trips, every print drawn to PDF and SVG) and the browser test
 # (tests/web.test.cjs: first start, every screen in Arabic and English, every export, restore on a
 # "new phone", broken and crafted files, the PIN lock, offline use, sync between two devices, the view
-# link for relatives opened on an iPhone) pass.
+# link and the app link for relatives opened on an iPhone) pass.
 name: Web app (checks)
 
 on:

@@ -6,12 +6,26 @@ import { isNative, cleanOldExports } from './core/native.js';
 import { ready } from './ui/app-state.js';
 import { App } from './ui/App.jsx';
 import { startSync } from './core/sync.js';
+import { readLinkCode } from './core/github.js';
+import { go } from './ui/router.js';
+import { joinCode } from './ui/screens/Sync.jsx';
+
+// a relative's app link (…/nasab/#nasab1:…): the key leaves the address bar (and this page's history)
+// at once, then the app asks before linking this device to that tree
+function takeAppLink() {
+  if (!/^#nasab1:/.test(location.hash)) return;
+  const c = readLinkCode(location.hash);
+  go('tree', true);
+  joinCode.value = c || { bad: true };
+}
 
 // the app never runs inside another site's frame (except the private preview, built with ALLOW_FRAME)
 if (window.top !== window.self && !__ALLOW_FRAME__) {
   document.documentElement.innerHTML = '';
   throw new Error('framed');
 }
+takeAppLink();
+addEventListener('hashchange', takeAppLink);
 
 (async function boot() {
   const root = document.getElementById('app');

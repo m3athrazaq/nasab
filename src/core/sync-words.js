@@ -4,8 +4,10 @@
 import { t, count } from './i18n.js';
 import { diffFamily } from './sync-merge.js';
 
-/** a writer's name as people read it: a kind of device, Claude, or as written */
+/** a writer's name as people read it: a kind of device, Claude, or as written (a relative's name) */
 export const byName = by => (['phone', 'iphone', 'computer', 'claude'].includes(by) ? t('by_' + by) : by || t('by_other'));
+/** a name typed for this device (a relative's): one line, no ":" (it starts the commit message), 20 letters */
+export const cleanDeviceName = v => String(v == null ? '' : v).replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069:#<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 20).trim();
 
 /** "2 added (Ziad, Salem), 1 edited (Khaled)" — the names when there are three or fewer */
 export function changesText(d) {
@@ -35,7 +37,7 @@ export function newsText(news) {
 export function commitText(info, by) {
   const who = byName(by);
   if (info.kind === 'photo') return `${who}: ${t('sync_c_photo')}`;
-  if (info.kind === 'share') return `${who}: ${t('sync_c_share')}`;
+  if (info.kind === 'share') return t('sync_c_share'); // the public repository: no names in its history
   if (info.kind === 'sharecfg') return `${who}: ${t('sync_c_sharecfg')}`;
   const fam = (info.after && info.after.fname) || (info.before && info.before.fname) || '';
   const tail = fam ? ` — ${fam}` : '';

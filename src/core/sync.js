@@ -10,22 +10,27 @@ import { photoBlob, putPhotoBlob } from './photos.js';
 import { github, GitHubError, REPO_RE, looksLikeToken } from './github.js';
 import { syncRound, emptyMeta } from './sync-engine.js';
 import { applyToState } from './sync-merge.js';
-import { sharePayload, publishShare, readShareConfig, shareConfigText, shareCfgFrom, newShareKey, viewLink, SHARE_CONFIG, SHARE_PATH } from './share.js';
+import { sharePayload, publishShare, readShareConfig, shareConfigText, shareCfgFrom, newShareKey, viewLink, appLink, SHARE_CONFIG, SHARE_PATH } from './share.js';
 import { lang, digits, calPref, calBoth } from './i18n.js';
-import { byName, newsText, commitText } from './sync-words.js';
+import { byName, newsText, commitText, cleanDeviceName } from './sync-words.js';
 import { isNative, isIOS } from './native.js';
 
 const CFG_KEY = 'nasab.sync.v1', META_KEY = 'sync.meta';
 const POLL = 15000, AFTER_EDIT = 4000, MIN_GAP = 8000;
 
-/** what the screens show: linked?, busy, the last error's code, when it last synced */
-export const syncStatus = signal({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false });
+/** what the screens show: linked?, busy, the last error's code, when it last synced; joined: linked with
+ *  a relative's link (the app link of someone else's tree) */
+export const syncStatus = signal({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false, joined: false });
+/** the link (if any) has been read from this device's storage */
+export const syncReady = signal(false);
+/** the app link for relatives made on this device: { link, own } (own: it uses this device's key) */
+export const familyStatus = signal({ link: '', own: false });
 /** what arrived from another device (the app shows it with Undo): { text, at } */
 export const syncNews = signal(null);
 /** the view link for relatives: { on, link, busy, error, at } */
 export const shareStatus = signal({ on: false, link: '', busy: false, error: '', at: 0 });
 
-let cfg = null;          // { repo, token, branch, device }
+let cfg = null;          // { repo, token, branch, device, joined?, family? }
 let meta = null;         // sync-engine's memory (the copies both sides had, the files seen)
 let running = null, again = false, timer = 0, stopped = false, retryAt = 0, backoff = 0, lastRun = 0;
 let syncedRev = -1, appliedRev = -1;
@@ -42,7 +47,14 @@ function setStatus(patch) { syncStatus.value = { ...syncStatus.value, ...patch }
 function readCfg(raw) {
   try {
     const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (o && REPO_RE.test(o.repo || '') && looksLikeToken(o.token) && typeof o.branch === 'string') return { repo: o.repo, token: o.token, branch: o.branch, device: String(o.device || deviceKind()).slice(0, 20) };
+    if (o && REPO_RE.test(o.repo || '') && looksLikeToken(o.token) && typeof o.branch === 'string') {
+      const c = { repo: o.repo, token: o.token, branch: o.branch, device: cleanDeviceName(o.device) || deviceKind() };
+      if (o.joined === true) c.joined = true;
+      const f = o.family;
+      if (f && f.own === true) c.family = { own: true };
+      else if (f && looksLikeToken(f.token)) c.family = { own: false, token: String(f.token).trim() };
+      return c;
+    }
   } catch (e) { /* none */ }
   return null;
 }
@@ -62,9 +74,11 @@ export async function startSync() {
   if (cfg) {
     try { meta = JSON.parse(await idbGet('kv', META_KEY)) || emptyMeta(); } catch (e) { meta = emptyMeta(); }
     if (!meta || typeof meta !== 'object' || !meta.fams) meta = emptyMeta();
-    setStatus({ linked: true, repo: cfg.repo, device: cfg.device });
+    setStatus({ linked: true, repo: cfg.repo, device: cfg.device, joined: !!cfg.joined });
     if (meta.share) setShare({ on: true, link: viewLink(meta.share) });
   }
+  setFamilyFromCfg();
+  syncReady.value = true;
   // a change here → send it a few seconds later (several quick edits go together)
   effect(() => {
     const rev = state.value.rev;
@@ -101,6 +115,8 @@ async function run() {
   setStatus({ busy: true });
   const gh = github({ repo: cfg.repo, token: cfg.token, branch: cfg.branch });
   const rev0 = state.value.rev, by = cfg.device, mine = meta;
+  // the first round of a device just linked: the family arriving is no news (no "changes arrived" notice)
+  const firstRound = !mine.head && !Object.keys(mine.fams || {}).length;
   const env = {
     gh, meta: mine, by,
     dirty: rev0 !== syncedRev,
@@ -109,7 +125,7 @@ async function run() {
       const synced = new Set(Object.keys(mine.fams));
       update(s => { Object.assign(s, applyToState(s, apply, { synced })); }, { undo: 'sync' });
       appliedRev = state.value.rev;
-      const text = newsText(news);
+      const text = firstRound ? '' : newsText(news);
       if (text) syncNews.value = { text, at: Date.now() };
     },
     message: info => commitText(info, by),
@@ -148,8 +164,9 @@ async function run() {
   }
 }
 
-/** link this device: checks the repository (it must be private) and the key, then the first sync */
-export async function link({ repo, token, branch = '' }) {
+/** link this device: checks the repository (it must be private) and the key, then the first sync.
+ *  device: a name for this device (a relative's); joined: linked with a relative's app link */
+export async function link({ repo, token, branch = '', device = '', joined = false }) {
   repo = String(repo || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
   token = String(token || '').trim();
   if (!REPO_RE.test(repo)) throw new GitHubError('notfound', 0, 'repository name');
@@ -157,11 +174,14 @@ export async function link({ repo, token, branch = '' }) {
   const gh = github({ repo, token, branch });
   const info = await gh.info();
   if (!info.private) throw new GitHubError('public', 0, 'public repository');
-  cfg = { repo: info.fullName || repo, token, branch: branch || info.branch, device: deviceKind() };
+  cfg = { repo: info.fullName || repo, token, branch: branch || info.branch, device: cleanDeviceName(device) || deviceKind() };
+  if (joined) cfg.joined = true;
+  shareBlocked = false;
   meta = emptyMeta();
   syncedRev = -1; stopped = false; retryAt = 0; backoff = 0; lastRun = 0;
   await saveCfg(); await saveMeta();
-  setStatus({ linked: true, repo: cfg.repo, device: cfg.device, error: '', last: 0 });
+  setStatus({ linked: true, repo: cfg.repo, device: cfg.device, error: '', last: 0, joined: !!cfg.joined });
+  setFamilyFromCfg();
   await syncNow({ force: true });
   if (syncStatus.value.error) throw new GitHubError(syncStatus.value.error);
   return true;
@@ -171,8 +191,9 @@ export async function unlink() {
   cfg = null; meta = null; stopped = false; retryAt = 0;
   clearTimeout(timer);
   await saveCfg(); await saveMeta();
-  setStatus({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false });
+  setStatus({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false, joined: false });
   shareStatus.value = { on: false, link: '', busy: false, error: '', at: 0 };
+  setFamilyFromCfg();
 }
 /** the link to hand to another device (QR code) — only from this screen, never stored anywhere else */
 export const currentLink = () => (cfg ? { repo: cfg.repo, token: cfg.token, branch: cfg.branch } : null);
@@ -187,12 +208,14 @@ const photoBytes = id => photoBlob(id).then(b => (b ? b.arrayBuffer().then(x => 
 // is compared with this one (another device a moment behind may have replaced it with an older one)
 const SHARE_GAP = 120000, SHARE_RECHECK = 1800000;
 let shareSentAt = 0, shareCheckedAt = 0;
+let shareBlocked = false; // this device's key cannot reach the public repository (a relative's key, say)
 
 /** after each sync: the encrypted copy in the public repository follows the family (only when it changed) */
 async function keepShareCurrent(force = false) {
   const c = meta && meta.share;
   if (!c) { if (shareStatus.value.on) setShare({ on: false, link: '', error: '', busy: false }); return; }
   setShare({ on: true, link: viewLink(c) });
+  if (shareBlocked && !force) return;
   try {
     const { text, missing } = await sharePayload(state.value, c.cfg, photoBytes);
     if (missing.length) return; // photos still arriving: another device's copy would have them
@@ -210,7 +233,9 @@ async function keepShareCurrent(force = false) {
     await saveMeta();
     setShare({ busy: false, error: '', at: Date.now() });
   } catch (e) {
-    setShare({ busy: false, error: (e && e.code) || 'http' });
+    const code = (e && e.code) || 'http';
+    if (['notfound', 'denied', 'auth'].includes(code)) shareBlocked = true;
+    setShare({ busy: false, error: code });
   }
 }
 /** share.json written to the private repository (a new one, or a new key) */
@@ -249,3 +274,34 @@ export async function renewShare() {
 }
 /** the public repository suggested for a new link: the same owner as the private one */
 export const suggestedShareRepo = () => (cfg ? cfg.repo.split('/')[0] + '/nasab-share' : '');
+
+/* ---------- the app link for relatives: the app itself, linked to this repository ---------- */
+function setFamilyFromCfg() {
+  const f = cfg && cfg.family;
+  const token = f ? (f.own ? cfg.token : f.token) : '';
+  familyStatus.value = token ? { link: appLink({ repo: cfg.repo, token, branch: cfg.branch }), own: !!f.own } : { link: '', own: false };
+}
+/** make it with a second key kept for relatives (checked: it reaches this private repository and may
+ *  write), or with this device's own key (key ''). Kept on this device only, like the link itself. */
+export async function makeFamilyLink(token = '') {
+  if (!cfg) throw new GitHubError('notfound');
+  token = String(token || '').trim();
+  const own = !token || token === cfg.token;
+  if (!own) {
+    if (!looksLikeToken(token)) throw new GitHubError('auth', 0, 'key');
+    const info = await github({ repo: cfg.repo, token, branch: cfg.branch }).info();
+    if (!info.private) throw new GitHubError('public');
+    if (!info.canPush) throw new GitHubError('denied');
+  }
+  cfg.family = own ? { own: true } : { own: false, token };
+  await saveCfg();
+  setFamilyFromCfg();
+  return familyStatus.value.link;
+}
+/** forget the app link on this device (it keeps working until its key is deleted on GitHub) */
+export async function forgetFamilyLink() {
+  if (!cfg) return;
+  delete cfg.family;
+  await saveCfg();
+  setFamilyFromCfg();
+}

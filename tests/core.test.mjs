@@ -3,7 +3,8 @@
 // looks and shapes, the family book, the certificate) drawn to PDF and SVG; sync between devices through a
 // private repository in memory (merging, deletions, conflicts, photos, broken files, the link code and its
 // QR code), the view link for relatives (what its copy holds, the encryption, share.json, the public
-// repository), and the tool Claude edits the family with (through the API and through a git clone).
+// repository), the app link for relatives (the link, their names, their own key), and the tool Claude
+// edits the family with (through the API and through a git clone).
 //   node tests/core.test.mjs        prints PASS/FAIL lines; exits 1 on any failure
 import fs from 'node:fs';
 import path from 'node:path';
@@ -814,6 +815,51 @@ await section('the view link for relatives', async () => {
     const copy3 = new Uint8Array(show(shareGit, SH.SHARE_PATH));
     check('--new: a new key; the old link no longer opens the copy, the new one does', t3.code === 0 && k3 && k3 !== k1 && await refused(k1, copy3) && SH.readPayload(await SH.openShare(k3, copy3)).fams.length === 2, t3.out + t3.err);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+/* ---------------- the app link for relatives ---------------- */
+await section('the app link for relatives (the app itself, linked, with their names)', async () => {
+  const SH = await import('../src/core/share.js');
+  const G = await import('../src/core/github.js');
+  const W = await import('../src/core/sync-words.js');
+  const { fakeGitHub } = await import('./fake-github.mjs');
+  const { memoryDevice } = await import('../src/core/sync-device.js');
+  const M = await import('../src/core/sync-merge.js');
+  const { AR } = await import('../src/core/strings.js');
+  const famKey = 'github_pat_FAMILY_' + 'z'.repeat(70);
+  const c = { repo: 'muaath/nasab-data', token: famKey, branch: 'main' };
+  const url = SH.appLink(c);
+  check('the app link: the app\'s address, then the link code after "#"', url.startsWith(SH.APP_URL + '#nasab1:') && SH.VIEW_URL === SH.APP_URL + 'view.html');
+  eq('the app reads it back from the address bar, or pasted whole', [G.readLinkCode(new URL(url).hash), G.readLinkCode(url), G.readLinkCode('  ' + url + '\n')], [c, c, c]);
+  check('…and still reads the code alone', JSON.stringify(G.readLinkCode(G.linkCode(c))) === JSON.stringify(c));
+  check('a cut or altered link is refused', [url.slice(0, -3) + '!!!', url.replace('#nasab1:', '#nasab2:'), SH.APP_URL + '#/tree', url.replace(/#.*/, '')].every(x => G.readLinkCode(x) === null));
+  eq('a relative\'s name: one line, no ":" or direction marks, 20 letters at most', [W.cleanDeviceName('  أحمد  '), W.cleanDeviceName('أحمد\n: بن‮ خالد'), W.cleanDeviceName('ع'.repeat(30)).length, W.cleanDeviceName(''), W.cleanDeviceName(null)], ['أحمد', 'أحمد بن خالد', 20, '', '']);
+  eq('names are said as written; devices by their kind', [W.byName('أحمد'), W.byName('phone')], ['أحمد', AR.by_phone]);
+  eq('the public repository\'s history names no one', [W.commitText({ kind: 'share' }, 'أحمد'), W.commitText({ kind: 'share' }, 'phone')], [AR.sync_c_share, AR.sync_c_share]);
+
+  // a relative's device (its own key, its name) and the owner's phone, on one repository
+  const gh = fakeGitHub({ owner: 'muaath', keys: [famKey] });
+  const owner = memoryDevice({ state: sanitizeState({ ...demoState(), settings: { onboarded: true } }), repo: gh.full, token: gh.token, fetchFn: gh.fetch, by: 'phone' });
+  await owner.sync();
+  const relName = W.cleanDeviceName('أحمد');
+  const rel = memoryDevice({ state: defaultState(), repo: gh.full, token: famKey, fetchFn: gh.fetch, by: relName, message: info => W.commitText(info, relName) });
+  await rel.sync();
+  check('the relative\'s device gets the whole tree with its own key', Object.keys(rel.state.people).length === Object.keys(owner.state.people).length);
+  rel.state = { ...rel.state, people: { ...rel.state.people, demom2: { ...rel.state.people.demom2, job: 'بحّار', upd: Date.now() } }, rev: rel.state.rev + 1 };
+  await rel.sync();
+  const msg = gh.commits().at(-1).message;
+  check('their edit is a commit with their name', msg.startsWith('أحمد: ') && msg.includes('محمد'), msg);
+  await owner.sync();
+  const said = W.newsText(owner.news.splice(0));
+  check('the owner is told who changed what', owner.state.people.demom2.job === 'بحّار' && said.includes('أحمد'), said);
+  // deleting the relatives' key on GitHub: their device stops, the owner's goes on
+  gh.revoke(famKey);
+  let code = '';
+  try { await rel.sync(); } catch (e) { code = e.code; }
+  check('the relatives\' key deleted: their device stops (auth)', code === 'auth');
+  owner.state = { ...owner.state, people: { ...owner.state.people, demom2: { ...owner.state.people.demom2, job: 'تاجر', upd: Date.now() } }, rev: owner.state.rev + 1 };
+  await owner.sync();
+  check('…and the owner\'s devices go on', /تاجر/.test(gh.read(M.familyPath(owner.state.fid)) || ''));
 });
 
 /* ---------------- Claude edits the family with the tool (one more device) ---------------- */

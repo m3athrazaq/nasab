@@ -417,3 +417,5 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 .scanbusy { display: grid; place-items: center; gap: 10px; padding: 40px 0; }
 .sharebox { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
 .sharebox h3 { margin: 0; font-size: 16px; font-weight: 600; }
+/* several text buttons in a row (the app link's "how do I stop it" / "another key") */
+.linkrow { display: flex; flex-wrap: wrap; gap: 2px 20px; margin-top: 8px; }

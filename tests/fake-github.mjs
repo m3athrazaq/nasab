@@ -6,8 +6,10 @@ import crypto from 'node:crypto';
 const sha1 = buf => crypto.createHash('sha1').update(buf).digest('hex');
 export const blobSha = bytes => sha1(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), Buffer.from(bytes)]));
 
-export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_pat_TEST_' + 'x'.repeat(70), isPrivate = true } = {}) {
+export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_pat_TEST_' + 'x'.repeat(70), isPrivate = true, keys = [] } = {}) {
   const repo = { private: isPrivate, branch: 'main', commits: [], files: new Map(), blobs: new Map() };
+  // the keys that reach this repository (a second one for relatives, say); revoke() is deleting one on GitHub
+  const accepted = new Set([token, ...keys]);
   // repo.commits: { sha, parent, files: Map(path → blob sha), message }
   let n = 0;
   const log = [];
@@ -28,7 +30,7 @@ export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_
     if (method === 'OPTIONS') return { status: 204, body: '', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-None-Match, Accept' } };
     if (!h.authorization && repo.private) return res(404, { message: 'Not Found' }); // as GitHub answers strangers
     const anonymousRead = !h.authorization && method === 'GET';
-    if (!anonymousRead && h.authorization !== 'Bearer ' + token) return res(401, { message: 'Bad credentials' });
+    if (!anonymousRead && !accepted.has(String(h.authorization || '').replace(/^Bearer /, ''))) return res(401, { message: 'Bad credentials' });
     const pre = `/repos/${owner}/${name}`;
     if (!u.pathname.startsWith(pre)) return res(404, { message: 'Not Found' });
     const p = u.pathname.slice(pre.length);
@@ -91,5 +93,7 @@ export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_
   /** the files at the head: path → text (for checks) */
   const read = path => { const c = head(); const sha = c && c.files.get(path); return sha ? repo.blobs.get(sha).toString('utf8') : null; };
   const readBytes = path => { const c = head(); const sha = c && c.files.get(path); return sha ? new Uint8Array(repo.blobs.get(sha)) : null; };
-  return { repo, token, full: `${owner}/${name}`, handle, fetch: fetchFn, head, read, readBytes, log, commits: () => repo.commits };
+  const revoke = key => accepted.delete(key);
+  const addKey = key => accepted.add(key);
+  return { repo, token, full: `${owner}/${name}`, handle, fetch: fetchFn, head, read, readBytes, log, commits: () => repo.commits, revoke, addKey };
 }

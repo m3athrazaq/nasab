@@ -10,7 +10,8 @@
 // broken and crafted files, the PIN lock, offline use, refusing to run inside a frame, and sync between a
 // computer and a phone through a private repository (in memory, behind page.route): linking with the key
 // and with the link code, an edit arriving with Undo, the undo going back, the view link for relatives
-// (made, kept by both devices, opened on an iPhone, changed), unlinking.
+// (made, kept by both devices, opened on an iPhone, changed), the app link for relatives (made with
+// their own key, opened on an iPhone, their edit arriving with their name, stopped), unlinking.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -649,6 +650,89 @@ let browser;
     seen = await view();
     check(/لم يعد يفتح/.test(seen.msg) && !seen.data.includes('demoa4'), 'the old link no longer opens the tree');
     await ipCtx.close();
+
+    // the app link for relatives: made on the phone with a key kept for relatives; opened on a relative's
+    // iPhone it is the app itself, linked to the tree, with their name on their changes; deleting that key
+    // on GitHub stops it there while the owner's devices go on
+    const famKey = 'github_pat_FAMILY_' + 'z'.repeat(70);
+    gh.addKey(famKey); pubGh.addKey(famKey);
+    await phCtx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE.replace(/\/$/, '') });
+    await ph.getByRole('button', { name: AR.fam_make, exact: true }).click();
+    await ph.locator('input[name="family-key"]').fill('github_pat_WRONG_' + 'q'.repeat(70));
+    await ph.getByRole('button', { name: AR.fam_create, exact: true }).click();
+    await ph.locator('.sharebox p[role="alert"]', { hasText: AR.sync_e_auth }).waitFor({ timeout: 15000 });
+    check(true, 'the app link: a key that does not reach the repository is refused');
+    await ph.locator('input[name="family-key"]').fill(famKey);
+    await ph.getByRole('button', { name: AR.fam_create, exact: true }).click();
+    await ph.locator('.toast', { hasText: AR.fam_made }).waitFor({ timeout: 15000 });
+    await ph.getByRole('button', { name: AR.share_copy, exact: true }).first().click();
+    const appUrl = await ph.evaluate(() => navigator.clipboard.readText());
+    check(appUrl.startsWith('https://m3athrazaq.github.io/nasab/#nasab1:'), 'the app link is made with the relatives\' key and copied');
+    const everywhere = [...gh.head().files.keys()].map(p => gh.read(p)).concat([...pubGh.head().files.keys()].map(p => Buffer.from(pubGh.readBytes(p)).toString('latin1'))).join('\n');
+    check(!everywhere.includes(famKey) && !everywhere.includes(gh.token), 'no key is ever written to either repository');
+
+    const relCtx = await browser.newContext({ ...devices['iPhone 13'], locale: 'ar-KW', timezoneId: 'Asia/Kuwait', serviceWorkers: 'block' });
+    await toGitHub(relCtx);
+    const rel = await relCtx.newPage(); watch(rel);
+    await rel.goto(BASE + '#' + appUrl.split('#')[1]);
+    await rel.locator('input[name="join-name"]').waitFor({ timeout: 15000 });
+    check(!/nasab1/.test(rel.url()) && (await rel.locator('.sheet').innerText()).includes(gh.full), 'the app link opens the app on an iPhone: the key leaves the address bar, and it says which tree it links to');
+    await rel.locator('input[name="join-name"]').fill('أحمد');
+    await rel.getByRole('button', { name: AR.join_go, exact: true }).click();
+    await rel.locator('.toast', { hasText: AR.join_done }).waitFor({ timeout: 15000 });
+    await rel.waitForFunction(k => { const s = JSON.parse(localStorage.getItem(k) || 'null'); return s && Object.keys(s.people).length >= 50 && s.settings.onboarded; }, KEY, { timeout: 15000 });
+    await tabs(rel);
+    const relLink = await rel.evaluate(() => localStorage.getItem('nasab.sync.v1') || '');
+    check(relLink.includes(famKey) && !relLink.includes(gh.token) && relLink.includes('أحمد'), 'the relative has the whole tree in the app, linked with the relatives\' key and their name');
+    await go(rel, 'export');
+    await rel.getByText(AR.ex_book, { exact: true }).first().waitFor({ timeout: 10000 });
+    check(true, '…with everything in it: exporting too');
+    await go(rel, 'edit/demom2');
+    await rel.getByLabel(AR.job).fill('بحّار');
+    await rel.getByRole('button', { name: AR.save }).first().click();
+    const t2 = Date.now();
+    while (!/بحّار/.test(gh.read(`families/${sample.fid}.json`)) && Date.now() - t2 < 30000) await rel.waitForTimeout(300);
+    check(gh.commits().some(c => c.message.startsWith('أحمد: ') && c.message.includes('محمد')), 'the relative\'s edit reaches the repository with their name');
+    await ph.getByRole('button', { name: AR.sync_now, exact: true }).click();
+    const fromRel = ph.locator('.toast', { hasText: 'أحمد' });
+    await fromRel.waitFor({ timeout: 15000 });
+    check((await fromRel.innerText()).includes('محمد'), 'the owner is told: ' + (await fromRel.innerText()).replace(/\s+/g, ' ').slice(0, 80));
+    await go(rel, 'settings');
+    await rel.locator('button.row', { hasText: gh.full }).click();
+    check(await rel.locator('.sharebox').count() === 0 && (await rel.locator('.sheet').innerText()).includes(AR.join_note), 'a relative\'s device makes no links of its own');
+    gh.revoke(famKey); pubGh.revoke(famKey);
+    await rel.getByRole('button', { name: AR.sync_now, exact: true }).click();
+    await rel.locator('.sheet p[role="alert"]', { hasText: AR.join_e_stopped }).waitFor({ timeout: 15000 });
+    check(true, 'the relatives\' key deleted on GitHub: the link stops there, and says to ask for a new one');
+    await ph.getByRole('button', { name: AR.sync_now, exact: true }).click();
+    await ph.locator('.syncstate.ok').waitFor({ timeout: 15000 });
+    check(await ph.locator('.syncstate.err').count() === 0, '…while the owner\'s devices go on');
+    await relCtx.close();
+
+    // the link pasted (an iPhone's home-screen app starts empty), and a device that holds another family
+    const pasteCtx = await browser.newContext({ ...devices['iPhone 13'], locale: 'ar-KW', timezoneId: 'Asia/Kuwait', serviceWorkers: 'block' });
+    await toGitHub(pasteCtx);
+    const pp = await pasteCtx.newPage(); watch(pp);
+    await pp.goto(BASE);
+    await pp.getByText(AR.ob_link, { exact: true }).click();
+    await pp.getByText(AR.sync_paste, { exact: true }).click();
+    await pp.locator('.syncform textarea').fill(appUrl);
+    await pp.getByRole('button', { name: AR.sync_link, exact: true }).click();
+    await pp.locator('input[name="join-name"]').waitFor({ timeout: 10000 });
+    check(true, 'the app link can be pasted too: the same questions');
+    await pasteCtx.close();
+    const ownFamily = JSON.parse(JSON.stringify(sample));
+    ownFamily.people = { abcd2345: { ...sample.people.demom2, id: 'abcd2345' } }; ownFamily.unions = {}; ownFamily.root = 'abcd2345'; ownFamily.me = '';
+    gh.addKey(famKey);
+    const commitsBefore = gh.commits().length;
+    const { ctx: ownCtx, page: own } = await open({ state: ownFamily });
+    await toGitHub(ownCtx);
+    await own.goto(BASE + '#' + appUrl.split('#')[1]);
+    await own.locator('.sheet p[role="alert"]', { hasText: AR.join_own.slice(0, 20) }).waitFor({ timeout: 15000 });
+    await own.waitForTimeout(1500);
+    const repoNow = [...gh.head().files.keys()].map(p => gh.read(p)).join('\n');
+    check(gh.commits().length === commitsBefore && !repoNow.includes('abcd2345') && Object.keys((await stored(own)).people).join() === 'abcd2345', 'a device with a family of its own is not joined to another tree (nothing is sent)');
+    await ownCtx.close();
 
     // unlink: the family stays, syncing stops
     await ph.getByRole('button', { name: AR.sync_unlink, exact: true }).click();

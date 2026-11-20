@@ -7,12 +7,16 @@
 // The same family always gives the very same file (the IV comes from the content), so any device can tell
 // whether the copy is current from the file's id alone, and two devices never overwrite each other.
 import { stable, familiesOf, gitBlobSha } from './sync-merge.js';
-import { REPO_RE } from './github.js';
+import { REPO_RE, linkCode } from './github.js';
 import { ID_RE, PERSON_FIELDS } from './store.js';
 
 export const SHARE_PATH = 'tree.bin';
 export const SHARE_CONFIG = 'share.json';
-export const VIEW_URL = 'https://m3athrazaq.github.io/nasab/view.html';
+export const APP_URL = 'https://m3athrazaq.github.io/nasab/';
+export const VIEW_URL = APP_URL + 'view.html';
+/** the app link for relatives: the app itself, linked to the private repository with the key after "#"
+ *  (the part of a link the browser never sends anywhere); the app takes it out of the address bar at once */
+export const appLink = c => APP_URL + '#' + linkCode(c);
 const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 // only what the view page shows: never phone numbers or emails, and nothing it does not show either
 // (residence, education, nicknames) — whoever has the link can read everything in the file

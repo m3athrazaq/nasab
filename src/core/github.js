@@ -111,8 +111,9 @@ export function linkCode({ repo, token, branch }) {
   const json = JSON.stringify({ r: repo, k: token, b: branch || '' });
   return 'nasab1:' + btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+/** the code alone (nasab1:…), or the app's link that carries it after "#" (https://…/nasab/#nasab1:…) */
 export function readLinkCode(text) {
-  const m = String(text || '').trim().match(/^nasab1:([A-Za-z0-9_-]{8,2000})$/);
+  const m = String(text || '').trim().match(/(?:^|#)nasab1:([A-Za-z0-9_-]{8,2000})$/);
   if (!m) return null;
   try {
     const b = m[1].replace(/-/g, '+').replace(/_/g, '/');

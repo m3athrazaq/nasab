@@ -19,7 +19,7 @@ import { StatsScreen } from './screens/Stats.jsx';
 import { ExportScreen, RestoreSheet, BusyOverlay, restoreFromFile } from './screens/Export.jsx';
 import { PosterScreen, BookScreen, CertificateScreen } from './screens/Prints.jsx';
 import { SettingsScreen, AboutScreen } from './screens/Settings.jsx';
-import { SyncSheet, useSyncNotices } from './screens/Sync.jsx';
+import { SyncSheet, JoinSheet, useSyncNotices } from './screens/Sync.jsx';
 import { Onboarding } from './screens/Onboarding.jsx';
 import { LockScreen, unlocked } from './screens/Lock.jsx';
 
@@ -94,8 +94,8 @@ export function App() {
   const s = state.value;
   if (!ready.value) return null;
   if (s.settings.lock && !unlocked.value) return <LockScreen />;
-  if (!s.settings.onboarded) return <><Onboarding /><RestoreSheet /><SyncSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
-  if (newFamily.value) return <><Onboarding family /><RestoreSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
+  if (!s.settings.onboarded) return <><Onboarding /><RestoreSheet /><SyncSheet /><JoinSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
+  if (newFamily.value) return <><Onboarding family /><RestoreSheet /><JoinSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
   const rt = route.value;
   const known = isTab(rt.name) || PARENT[rt.name];
   const name = known ? rt.name : 'tree';
@@ -114,6 +114,7 @@ export function App() {
       <FamiliesSheet onRoot={() => { go('tree'); rootSheet.value = true; }} />
       <RestoreSheet />
       <SyncSheet />
+      <JoinSheet />
       <BusyOverlay />
       <Toasts />
       <DialogHost />
