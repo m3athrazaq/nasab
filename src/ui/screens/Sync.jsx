@@ -6,7 +6,7 @@ import { signal, effect } from '@preact/signals';
 import { syncStatus, syncNews, syncNow, link, unlink, currentLink, byName, shareStatus, createShare, renewShare, suggestedShareRepo } from '../../core/sync.js';
 import { linkCode, readLinkCode } from '../../core/github.js';
 import { undo, undoInfo } from '../../core/store.js';
-import { isNative } from '../../core/native.js';
+import { isNative, plug } from '../../core/native.js';
 import { t, lang, digits } from '../../core/i18n.js';
 import { Sheet, toast, confirmDialog, Spinner } from '../kit.jsx';
 import { Icon } from '../icons.jsx';
@@ -275,8 +275,11 @@ function ShareBlock() {
   const [err, setErr] = useState('');
   const run = async fn => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e && e.code) || 'http'); } setBusy(false); };
   const copy = async () => { try { await navigator.clipboard.writeText(sh.link); toast(t('share_copied')); } catch (e) { toast(t('sync_e_copy')); } };
+  // the system's share sheet (WhatsApp, Messages, Mail…): Android's in the app, the browser's elsewhere; else copied
   const send = async () => {
-    if (navigator.share) { try { await navigator.share({ title: t('share_title'), url: sh.link }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+    const native = isNative && plug('Share');
+    if (native) { try { await native.share({ title: t('share_title'), url: sh.link, dialogTitle: t('share_send') }); return; } catch (e) { if (/cancel/i.test(String((e && e.message) || ''))) return; } }
+    else if (navigator.share) { try { await navigator.share({ title: t('share_title'), url: sh.link }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
     copy();
   };
   return (
