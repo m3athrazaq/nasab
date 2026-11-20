@@ -5,6 +5,7 @@ import { tidyPhotos } from './core/photos.js';
 import { isNative, cleanOldExports } from './core/native.js';
 import { ready } from './ui/app-state.js';
 import { App } from './ui/App.jsx';
+import { startSync } from './core/sync.js';
 
 // the app never runs inside another site's frame (except the private preview, built with ALLOW_FRAME)
 if (window.top !== window.self && !__ALLOW_FRAME__) {
@@ -25,6 +26,8 @@ if (window.top !== window.self && !__ALLOW_FRAME__) {
   ready.value = true;
   root.textContent = '';
   render(<App />, root);
+  // linked to the user's private repository? then the family syncs (nothing happens otherwise)
+  if (!__ALLOW_FRAME__) startSync().catch(e => console.error(e));
   if (!isNative && 'serviceWorker' in navigator && window.isSecureContext && !__ALLOW_FRAME__) navigator.serviceWorker.register('sw.js').catch(() => {});
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if (isNative) cleanOldExports();

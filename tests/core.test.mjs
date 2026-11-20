@@ -1,6 +1,8 @@
 // The app's logic without a browser: dates in both calendars, Arabic names, kinship, the tree's data
 // model and its repairs, editing and undo, GEDCOM and Excel round trips, and every print (poster in all
-// looks and shapes, the family book, the certificate) drawn to PDF and SVG.
+// looks and shapes, the family book, the certificate) drawn to PDF and SVG; sync between devices through a
+// private repository in memory (merging, deletions, conflicts, photos, broken files, the link code and its
+// QR code), and the tool Claude edits the family with (through the API and through a git clone).
 //   node tests/core.test.mjs        prints PASS/FAIL lines; exits 1 on any failure
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +11,7 @@ import { createRequire } from 'node:module';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const require = createRequire(path.join(ROOT, 'package.json'));
 // what the bundler defines, and what the Excel module expects to find already loaded
-Object.assign(globalThis, { __APP_VERSION__: 'test', __ALLOW_FRAME__: false, __EXCELJS_SRI__: '', __PDF_SRI__: '', __VIEWER_SRI__: '' });
+Object.assign(globalThis, { __APP_VERSION__: 'test', __ALLOW_FRAME__: false, __EXCELJS_SRI__: '', __PDF_SRI__: '', __VIEWER_SRI__: '', __QR_SRI__: '' });
 globalThis.window = globalThis;
 globalThis.ExcelJS = require('exceljs');
 
@@ -509,6 +511,243 @@ await section('table of generations', async () => {
   const bw = buildTable(ix, demo, { paper: 'A4', colors: false }, env);
   check('in black and white: no colour but grey', !GEN_COLORS_USED(bw.scene));
   check('nothing to draw from an empty generation', buildTable(ix, demo, { paper: 'auto', fromGen: 9 }, env) === null);
+});
+
+/* ---------------- sync between devices (a private GitHub repository, in memory) ---------------- */
+await section('sync between devices', async () => {
+  const { fakeGitHub, blobSha } = await import('./fake-github.mjs');
+  const { memoryDevice } = await import('../src/core/sync-device.js');
+  const M = await import('../src/core/sync-merge.js');
+  const { linkCode, readLinkCode, looksLikeToken } = await import('../src/core/github.js');
+  const gh = fakeGitHub();
+  const dev = (st, by, extra = {}) => memoryDevice({ state: st, repo: gh.full, token: gh.token, fetchFn: gh.fetch, by, ...extra });
+  const on = (d, fn) => { state.value = d.state; const r = fn(); d.state = state.value; return r; };
+  const famOf = d => M.familiesOf(d.state).get(d.state.fid);
+  const key = d => M.contentKey(famOf(d));
+  const tick = () => new Promise(r => setTimeout(r, 3)); // edits a few ms apart (the later one wins a clash)
+
+  const phone = dev(sanitizeState({ ...demoState(), settings: { onboarded: true } }), 'phone');
+  const pc = dev(defaultState(), 'computer');
+  await phone.sync();
+  const file = gh.read(M.familyPath(phone.state.fid));
+  check('the phone sends its family: one file, one line per person', !!file && file.split('\n').filter(l => /^"demo/.test(l)).length >= 52 && M.fromText(file).fid === phone.state.fid);
+  eq('git\'s id of the file is computed the same way', await M.gitBlobSha(new TextEncoder().encode(file)), blobSha(Buffer.from(file)));
+  await pc.sync();
+  check('a new computer takes the family in place of its empty one, and starts', pc.state.fid === phone.state.fid && Object.keys(pc.state.people).length === 52 && pc.state.settings.onboarded && !Object.keys(pc.state.others).length);
+  check('both hold the same family', key(pc) === key(phone));
+  const reads = gh.log.length;
+  await pc.sync();
+  check('nothing new: one request, answered "not modified"', gh.log.length === reads + 1 && /git\/ref/.test(gh.log[gh.log.length - 1]));
+
+  // the computer adds a son; the phone receives him
+  const kid = on(pc, () => A.addChild('demom2', { n: 'زياد', g: 'm', b: '2021-05-01' }));
+  await pc.sync(); await phone.sync();
+  const got = phone.news.find(n => n.kind === 'changed');
+  check('a son added on the computer reaches the phone, with what changed', !!phone.state.people[kid] && got && got.diff.added.length === 1 && got.by === 'computer', JSON.stringify(got && got.diff.added));
+  check('…as his father\'s son', (() => { const k = phone.state.people[kid]; const u = phone.state.unions[k.pu]; return u && u.h === 'demom2'; })());
+
+  // different details of one person on each side, before either syncs: both kept
+  on(phone, () => A.editPerson('demoa2', { job: 'مهندس' }));
+  await tick();
+  on(pc, () => A.editPerson('demoa2', { b: '1960-02-03' }));
+  await phone.sync(); await pc.sync(); await phone.sync();
+  const a2 = d => d.state.people.demoa2;
+  check('two details changed on two devices: both kept, everywhere', a2(pc).job === 'مهندس' && a2(pc).b === '1960-02-03' && a2(phone).job === 'مهندس' && a2(phone).b === '1960-02-03' && key(pc) === key(phone));
+
+  // the same detail on both: the later edit wins
+  on(phone, () => A.editPerson('demoa2', { res: 'الكويت' }));
+  await tick();
+  on(pc, () => A.editPerson('demoa2', { res: 'الرياض' }));
+  await pc.sync(); await phone.sync(); await pc.sync();
+  check('the same detail changed on both: the later edit wins on both', a2(phone).res === 'الرياض' && a2(pc).res === 'الرياض');
+
+  // deleting reaches the other device
+  on(phone, () => A.deletePerson(kid));
+  await phone.sync(); await pc.sync();
+  check('a person deleted on the phone is deleted on the computer', !pc.state.people[kid] && !phone.state.people[kid] && key(pc) === key(phone));
+  check('…and recorded as deleted in the file', !!M.fromText(gh.read(M.familyPath(phone.state.fid))).gone[kid]);
+
+  // deleted on one side, changed on the other before syncing: the change wins (nothing is lost)
+  const victim = Object.keys(phone.state.people).find(id => !['demor1', 'demom2', 'demoa2'].includes(id) && !Object.values(phone.state.unions).some(u => u.h === id || u.w === id));
+  on(phone, () => A.deletePerson(victim));
+  await phone.sync();
+  on(pc, () => A.editPerson(victim, { note: 'ملاحظة' }));
+  await pc.sync(); await phone.sync();
+  check('deleted on the phone while edited on the computer: he stays, with the edit', pc.state.people[victim] && phone.state.people[victim] && phone.state.people[victim].note === 'ملاحظة');
+
+  // a change on GitHub between reading and writing: GitHub refuses the write, the next round merges
+  on(pc, () => A.editPerson('demor1', { nick: 'أبو محمد' }));
+  const pcRound = pc.sync();
+  on(phone, () => A.editPerson('demom2', { job: 'تاجر' }));
+  await phone.sync();
+  await pcRound; await phone.sync(); await pc.sync();
+  check('two devices writing at the same moment: both changes kept', pc.state.people.demor1.nick === 'أبو محمد' && pc.state.people.demom2.job === 'تاجر' && phone.state.people.demor1.nick === 'أبو محمد' && key(pc) === key(phone));
+
+  // a second family on the computer appears on the phone; deleting it there removes it here
+  let fid2 = '';
+  on(pc, () => { fid2 = A.addFamily({ name: 'الثانية' }); A.buildChain(['فهد', 'سعد'], { family: 'السعد', me: false }); });
+  await pc.sync(); await phone.sync();
+  check('a second family made on the computer appears on the phone', !!phone.state.others[fid2] && Object.keys(phone.state.others[fid2].people).length === 2 && phone.state.others[fid2].fname === 'الثانية');
+  on(phone, () => A.deleteFamily(fid2));
+  await phone.sync(); await pc.sync();
+  check('a family deleted on the phone is deleted on the computer', !pc.state.others[fid2] && pc.state.fid !== fid2 && gh.read(M.familyPath(fid2)) === null);
+  check('…and the open family is the first one again', pc.state.fid === phone.state.fid && Object.keys(pc.state.people).length > 40);
+
+  // Undo of what arrived: the phone undoes the computer's change; the computer gets it undone too
+  on(pc, () => A.editPerson('demom2', { kun: 'أبو زياد' }));
+  await pc.sync();
+  const before = phone.state;
+  await phone.sync();
+  check('the change arrives on the phone', phone.state.people.demom2.kun === 'أبو زياد');
+  phone.state = before; // what Undo puts back
+  await phone.sync(); await pc.sync();
+  check('undoing it on the phone undoes it on the computer', pc.state.people.demom2.kun === 'أبو راشد' && phone.state.people.demom2.kun === 'أبو راشد');
+
+  // a device that lost its data never empties the repository
+  const lost = dev(defaultState(), 'phone');
+  lost.meta.fams = JSON.parse(JSON.stringify(phone.meta.fams)); lost.meta.head = ''; lost.meta.files = null;
+  await lost.sync();
+  check('a device with no data (lost or erased) takes the family back instead of deleting it', Object.keys(lost.state.people).length === Object.keys(phone.state.people).length && !!gh.read(M.familyPath(phone.state.fid)));
+
+  // a broken or crafted file on GitHub: that family is left alone, nothing is deleted or overwritten
+  const path = M.familyPath(phone.state.fid);
+  const sha0 = gh.head().files.get(path);
+  gh.handle('PUT', `https://api.github.com/repos/${gh.full}/contents/${path}`, { Authorization: 'Bearer ' + gh.token }, JSON.stringify({ message: 'broken', content: Buffer.from('{"app":"nasab","fid":"<script>"').toString('base64'), sha: sha0 }));
+  const keep = key(phone);
+  on(phone, () => A.editPerson('demor1', { job: 'شيخ' }));
+  await phone.sync();
+  check('a broken file on GitHub: the family here is kept and not sent over it', Object.keys(phone.state.people).length > 40 && phone.state.people.demor1.job === 'شيخ' && !/شيخ/.test(gh.read(path)));
+  void keep;
+  // a crafted file: everything checked like any file read from outside
+  const crafted = M.fromFile({ app: 'nasab', fid: 'abcd1234', people: { 'bad id': { n: 'x' }, ok12: { n: '<b>علي</b>'.repeat(30), pu: 'zzzz9999', tel: 'javascript:alert(1)' }, ok13: 'nope' }, unions: { u1x2: { h: 'ok12', w: 'ok12' } }, gone: { ok14: 'x', ok15: 1e20, ok16: 5 } });
+  check('a crafted file: bad ids dropped, text cut and cleaned, links checked', crafted && Object.keys(crafted.people).join() === 'ok12' && crafted.people.ok12.n.length <= 80 && !crafted.people.ok12.pu && !/[a-z:]/.test(crafted.people.ok12.tel) && Object.keys(crafted.gone).join() === 'ok16');
+  check('a file that is not a family is refused', M.fromText('{"fid":"abcd1234"}') === null && M.fromText('not json') === null && M.fromText('{"app":"nasab","fid":"../x"}') === null);
+
+  // photos: sent once, received where missing
+  const blobs = { a: new Map(), b: new Map() };
+  const store = m => ({ has: async id => m.has(id), get: async id => m.get(id) || null, put: async (id, b) => { m.set(id, b); } });
+  const gh2 = fakeGitHub();
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const st = sanitizeState({ ...demoState(), settings: { onboarded: true } });
+  st.people.demom2 = { ...st.people.demom2, photo: 'photo1234' };
+  blobs.a.set('photo1234', jpeg);
+  const p1 = memoryDevice({ state: st, repo: gh2.full, token: gh2.token, fetchFn: gh2.fetch, by: 'phone', photos: store(blobs.a) });
+  const p2 = memoryDevice({ state: defaultState(), repo: gh2.full, token: gh2.token, fetchFn: gh2.fetch, by: 'computer', photos: store(blobs.b) });
+  await p1.sync(); await p2.sync();
+  check('a photo goes with its person', blobs.b.has('photo1234') && Buffer.from(blobs.b.get('photo1234')).equals(Buffer.from(jpeg)) && !!gh2.read(M.photoPath('photo1234')));
+
+  // the wrong key, a public repository, a repository that lost its history
+  const bad = memoryDevice({ state: defaultState(), repo: gh.full, token: 'github_pat_WRONG_' + 'y'.repeat(70), fetchFn: gh.fetch, by: 'x' });
+  let code = ''; try { await bad.sync(); } catch (e) { code = e.code; }
+  eq('a wrong or revoked key is reported as such', code, 'auth');
+  const pub = fakeGitHub({ isPrivate: false });
+  const { github } = await import('../src/core/github.js');
+  check('a public repository is seen as public (the app refuses it)', (await github({ repo: pub.full, token: pub.token, fetchFn: pub.fetch }).info()).private === false);
+  const gone = memoryDevice({ state: phone.state, repo: gh2.full, token: gh2.token, fetchFn: gh2.fetch, by: 'x' });
+  await gone.sync();
+  gh2.repo.commits.length = 0; // as if the repository were emptied or replaced
+  code = ''; try { await gone.sync(); } catch (e) { code = e.code; }
+  check('a repository that lost its history: an error, and this device keeps everything', code === 'notfound' && Object.keys(gone.state.people).length > 40);
+
+  // the link code shown as a QR code
+  const lc = linkCode({ repo: 'm3ath/nasab-data', token: 'github_pat_' + 'A1_'.repeat(28), branch: 'main' });
+  const back = readLinkCode(lc);
+  check('the link code carries the repository, the branch and the key', back && back.repo === 'm3ath/nasab-data' && back.branch === 'main' && back.token.startsWith('github_pat_'));
+  check('anything else is not a link code', readLinkCode('nasab1:@@@') === null && readLinkCode('https://evil.example') === null && readLinkCode(linkCode({ repo: '../x', token: 'github_pat_' + 'a'.repeat(40) })) === null);
+  check('a key looks like GitHub\'s', looksLikeToken('github_pat_11ABCDEFG0' + 'x'.repeat(70)) && looksLikeToken('ghp_' + 'a'.repeat(36)) && !looksLikeToken('password123'));
+  // the QR code drawn on one screen is read back by the other device's camera code (vendor/qr.js)
+  const vm = await import('node:vm');
+  const box = {};
+  vm.runInNewContext(fs.readFileSync(new URL('../vendor/qr.js', import.meta.url), 'utf8') + ';this.Q = NasabQR;', box);
+  const real = linkCode({ repo: 'm3athrazaq/nasab-data', token: 'github_pat_11ABCDE' + 'Zz9_'.repeat(20), branch: 'main' });
+  const rows = box.Q.matrix(real), k = 6, q = 4, side = (rows.length + 2 * q) * k;
+  const px = new Uint8ClampedArray(side * side * 4).fill(255);
+  rows.forEach((row, y) => [...row].forEach((c, x) => { if (c === '1') for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) { const i = (((y + q) * k + dy) * side + (x + q) * k + dx) * 4; px[i] = px[i + 1] = px[i + 2] = 0; } }));
+  eq('the link\'s QR code reads back as the same link', box.Q.read(px, side, side), real);
+});
+
+/* ---------------- Claude edits the family with the tool (one more device) ---------------- */
+await section('the tool Claude edits with', async () => {
+  const http = await import('node:http');
+  const { execFile } = await import('node:child_process');
+  const os = await import('node:os');
+  const { fakeGitHub } = await import('./fake-github.mjs');
+  const { memoryDevice } = await import('../src/core/sync-device.js');
+  const M = await import('../src/core/sync-merge.js');
+  const gh = fakeGitHub({ owner: 'muaath', name: 'nasab-data' });
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => { const r = gh.handle(req.method, 'https://api.github.com' + req.url, req.headers, body); res.writeHead(r.status, r.headers); res.end(r.body); });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const api = `http://127.0.0.1:${server.address().port}`;
+  const env = { ...process.env, NASAB_API: api, NASAB_TOKEN: gh.token };
+  delete env.HTTPS_PROXY; delete env.https_proxy; delete env.NODE_USE_ENV_PROXY;
+  const tool = (...a) => new Promise(ok => execFile(process.execPath, [path.join(ROOT, 'tools/nasab-data.mjs'), gh.full, ...a], { env, timeout: 60000 }, (e, out, err) => ok({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+  try {
+    // the phone has the family in the repository
+    const phone = memoryDevice({ state: sanitizeState({ ...demoState(), settings: { onboarded: true } }), repo: gh.full, token: gh.token, fetchFn: gh.fetch, by: 'phone' });
+    await phone.sync();
+    const fams = await tool('families');
+    check('the tool lists the families in the repository', fams.code === 0 && fams.out.includes(phone.state.fid) && /52 people/.test(fams.out), fams.err || fams.out);
+    const found = await tool('find', 'عبدالله بن فهد');
+    check('it finds a person by his name and his father\'s', found.code === 0 && found.out.startsWith('demoa4'), found.out + found.err);
+    const many = await tool('find', 'محمد');
+    check('a name alone that fits several people lists them all', many.out.trim().split('\n').length > 1);
+    // an edit script: a son for عبدالله بن محمد, a job for his father
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nasab-tool-'));
+    const script = path.join(dir, 'edit.mjs');
+    fs.writeFileSync(script, "export default ({ A, find }) => { const a = find('عبدالله بن فهد'); A.addChild(a, { n: 'منصور', g: 'm', b: '2024-02-10' }); A.editPerson(find('محمد بن راشد الراشد'), { job: 'تاجر لؤلؤ' }); };\n");
+    const dryRun = await tool('edit', script, '--dry');
+    check('a dry run shows the change and sends nothing', dryRun.code === 0 && /منصور/.test(dryRun.out) && /dry run/.test(dryRun.out) && !/منصور/.test(gh.read(`families/${phone.state.fid}.json`)), dryRun.out + dryRun.err);
+    const res = await tool('edit', script);
+    check('the edit is sent', res.code === 0 && /^sent:/m.test(res.out), res.out + res.err);
+    const last = gh.commits()[gh.commits().length - 1];
+    check('its commit says Claude did it, and what: ' + last.message, last.message.startsWith('Claude: ') && last.message.includes('منصور'));
+    await phone.sync();
+    const kid = Object.values(phone.state.people).find(p => p.n === 'منصور');
+    const news = phone.news.find(n => n.by === 'claude');
+    check('the phone gets Claude\'s edit on its next sync, marked as Claude\'s', kid && phone.state.unions[kid.pu] && phone.state.unions[kid.pu].h === 'demoa4' && phone.state.people.demom2.job === 'تاجر لؤلؤ' && news);
+    const amb = path.join(dir, 'amb.mjs');
+    fs.writeFileSync(amb, "export default ({ A, find }) => { A.editPerson(find('محمد'), { job: 'x' }); };\n");
+    const stopped = await tool('edit', amb);
+    check('when a name fits several people the edit stops and nothing is sent', stopped.code !== 0 && /fits \d+ people/.test(stopped.err) && !/"x"/.test(gh.read(`families/${phone.state.fid}.json`)));
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    // a clone folder (how a Claude session writes: with git), while a device writes at the same moment
+    const { execFileSync } = await import('node:child_process');
+    const g = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nasab-git-'));
+    const id = ['-c', 'user.name=T', '-c', 'user.email=t@t'];
+    g(root, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
+    g(root, 'clone', '-q', 'origin.git', 'device');
+    const devDir = path.join(root, 'device'), fid = phone.state.fid, fp = M.familyPath(fid);
+    fs.mkdirSync(path.join(devDir, 'families'));
+    fs.writeFileSync(path.join(devDir, fp), M.toText({ ...M.familiesOf(phone.state).get(fid), gone: {} }, { by: 'phone' }));
+    g(devDir, 'add', '.'); g(devDir, ...id, 'commit', '-q', '-m', 'phone'); g(devDir, 'push', '-q', 'origin', 'HEAD:main');
+    g(root, 'clone', '-q', '--depth', '1', 'file://' + path.join(root, 'origin.git'), 'claude');
+    const gscript = path.join(root, 'edit.mjs');
+    fs.writeFileSync(gscript, `import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+export default ({ A, find }) => {
+  A.addChild(find('عبدالله بن فهد'), { n: 'ناصر', g: 'm' });
+  // meanwhile the phone writes another change
+  const f = ${JSON.stringify(path.join(devDir, fp))};
+  const o = JSON.parse(fs.readFileSync(f, 'utf8'));
+  o.people.demor1.job = 'نوخذة'; o.people.demor1.upd = Date.now();
+  fs.writeFileSync(f, JSON.stringify(o));
+  const g = (...a) => execFileSync('git', a, { cwd: ${JSON.stringify(devDir)} });
+  g('add', '.'); g('-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'phone again'); g('push', '-q', 'origin', 'HEAD:main');
+};
+`);
+    const gres = await new Promise(ok => execFile(process.execPath, [path.join(ROOT, 'tools/nasab-data.mjs'), path.join(root, 'claude'), 'edit', gscript], { env, timeout: 60000 }, (e, out, err) => ok({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+    g(devDir, 'pull', '-q', 'origin', 'main');
+    const final = M.fromText(fs.readFileSync(path.join(devDir, fp), 'utf8'));
+    const msg = g(devDir, 'log', '-1', '--format=%s');
+    check('with a clone folder: a device\'s write meanwhile is merged, then Claude\'s edit is pushed', gres.code === 0 && /merged/.test(gres.err) && final.people.demor1.job === 'نوخذة' && Object.values(final.people).some(p => p.n === 'ناصر') && msg.startsWith('Claude: '), gres.out + gres.err + msg);
+    fs.rmSync(root, { recursive: true, force: true });
+  } finally { server.close(); }
 });
 
 console.log(fails ? `FAIL ${fails} of ${passes + fails} checks` : `PASS all ${passes} checks`);

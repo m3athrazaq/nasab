@@ -66,8 +66,12 @@
         </provider>
     </application>
 
-    <!-- No internet: the app works offline (fonts, PDF and Excel engines are inside it), so it cannot
-         send your family's data anywhere. Its pages are served to the WebView from inside the app.
-         The line below also removes the permission if a library ever asks for it. -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <!-- Internet: used only when the user links the app to his own private GitHub repository (sync
+         between devices). The page's Content-Security-Policy lets it connect to api.github.com and
+         nothing else, and the WebView never leaves the app's own pages (NavigationGuardPlugin).
+         Without a link the app works fully offline (fonts, PDF and Excel engines are inside it). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Camera: only to read the link code (a QR code) shown by the other device; asked when used -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

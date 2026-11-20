@@ -7,7 +7,9 @@
 // of children (the app's, and one father's from his card), names inside the shapes, the table of generations, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
 // certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone" and as a
 // new family,
-// broken and crafted files, the PIN lock, offline use, and refusing to run inside a frame.
+// broken and crafted files, the PIN lock, offline use, refusing to run inside a frame, and sync between a
+// computer and a phone through a private repository (in memory, behind page.route): linking with the key
+// and with the link code, an edit arriving with Undo, the undo going back, unlinking.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -513,6 +515,91 @@ let browser;
     const d = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'offline.pdf');
     check(d.buf.subarray(0, 5).toString('latin1') === '%PDF-', 'a poster PDF can be made offline');
     await ctx.close();
+  }
+
+  /* ---------- 10. sync between devices: a computer and a phone, through a private repository ---------- */
+  // (the repository is in memory — tests/fake-github.mjs — answering the app's calls to api.github.com)
+  {
+    const { fakeGitHub } = await import('./fake-github.mjs');
+    const gh = fakeGitHub({ owner: 'muaath', name: 'nasab-data' });
+    const toGitHub = ctx => ctx.route('https://api.github.com/**', async r => {
+      const q = r.request();
+      const out = gh.handle(q.method(), q.url(), q.headers(), q.postData() || '');
+      await r.fulfill({ status: out.status, headers: out.headers, body: out.body });
+    });
+    const watch = p => {
+      p.on('pageerror', e => jsErrors.push(e.message));
+      p.on('console', m => { if (/Content Security Policy|Refused to/i.test(m.text())) jsErrors.push('CSP: ' + m.text()); });
+    };
+    // the computer: first start → "my tree is on another device" → the repository and the key
+    const pcCtx = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: 'ar-KW', timezoneId: 'Asia/Kuwait', serviceWorkers: 'block' });
+    await pcCtx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE.replace(/\/$/, '') });
+    await toGitHub(pcCtx);
+    const pc = await pcCtx.newPage(); watch(pc);
+    await pc.goto(BASE);
+    await pc.getByText(AR.ob_link, { exact: true }).click();
+    await pc.getByText(AR.sync_enter, { exact: true }).click();
+    await pc.locator('input[name="repo"]').fill('https://github.com/' + gh.full);
+    await pc.locator('input[name="key"]').fill(gh.token);
+    await pc.getByRole('button', { name: AR.sync_link }).click();
+    await pc.locator('.linkcode .qr svg').waitFor({ timeout: 15000 });
+    check(await pc.locator('.syncstate').innerText().then(x => x.includes(gh.full)), 'the computer links to an empty private repository, and shows the code for the phone');
+    await pc.getByRole('button', { name: AR.sync_copy }).click();
+    const code = await pc.evaluate(() => navigator.clipboard.readText());
+    check(/^nasab1:/.test(code), 'the link code can be copied');
+    const ls = await pc.evaluate(() => ({ state: localStorage.getItem('nasab.state.v1') || '', link: localStorage.getItem('nasab.sync.v1') || '' }));
+    check(ls.link.includes(gh.token) && !ls.state.includes(gh.token), 'the key is kept apart from the family (never in backups)');
+
+    // the phone: the sample family → Settings → sync → paste the code
+    const { ctx: phCtx, page: ph } = await open({ state: sample });
+    await toGitHub(phCtx);
+    await ph.goto(BASE); await tabs(ph);
+    await go(ph, 'settings');
+    await ph.locator('.row', { hasText: AR.sync_row_off_sub }).click();
+    await ph.getByText(AR.sync_paste, { exact: true }).click();
+    await ph.locator('.syncform textarea').fill(code);
+    await ph.getByRole('button', { name: AR.sync_link }).click();
+    await ph.locator('.syncstate.ok').waitFor({ timeout: 15000 });
+    const sent = gh.read(`families/${sample.fid}.json`);
+    check(!!sent && JSON.parse(sent).people.demom2 && /^.{0,40}: \{/m.test(sent), 'the phone links with the code and sends its family');
+
+    // the computer receives it (now, instead of within 15 seconds)
+    await pc.getByRole('button', { name: AR.sync_now }).click();
+    await pc.waitForFunction(k => { const s = JSON.parse(localStorage.getItem(k) || 'null'); return s && Object.keys(s.people).length >= 50 && s.settings.onboarded; }, KEY, { timeout: 15000 });
+    await pc.keyboard.press('Escape');
+    await tabs(pc);
+    check(true, 'the computer receives the family and opens it');
+
+    // an edit on the computer reaches the phone, which can undo it
+    await go(pc, 'edit/demom2');
+    await pc.getByLabel(AR.job).fill('صاحب سفن');
+    await pc.getByRole('button', { name: AR.save }).first().click();
+    const t0 = Date.now();
+    while (!/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)) && Date.now() - t0 < 30000) await pc.waitForTimeout(300);
+    check(/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)), 'an edit on the computer is sent within seconds (' + Math.round((Date.now() - t0) / 1000) + ' s)');
+    await ph.getByRole('button', { name: AR.sync_now }).click();
+    const toastEl = ph.locator('.toast', { hasText: AR.by_computer });
+    await toastEl.waitFor({ timeout: 15000 });
+    const said = (await toastEl.innerText()).replace(/\s+/g, ' ');
+    check(said.includes('عُدّل') && said.includes('محمد'), 'the phone tells what arrived: ' + said.slice(0, 90));
+    await settle(ph);
+    check((await stored(ph)).people.demom2.job === 'صاحب سفن', 'the phone has the edit');
+    await toastEl.getByRole('button', { name: AR.undo }).click();
+    await settle(ph);
+    check((await stored(ph)).people.demom2.job !== 'صاحب سفن', 'Undo on the phone puts it back');
+    await ph.getByRole('button', { name: AR.sync_now }).click();
+    const t1 = Date.now();
+    while (/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)) && Date.now() - t1 < 30000) await ph.waitForTimeout(300);
+    check(!/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)), '…and the undo goes back to the repository');
+    check(gh.commits().some(c => c.message.startsWith(AR.by_computer + ':')) && gh.commits().some(c => c.message.startsWith(AR.by_phone + ':')), 'each change is a commit that says which device made it');
+
+    // unlink: the family stays, syncing stops
+    await ph.getByRole('button', { name: AR.sync_unlink }).click();
+    await ph.locator('.dialog .btn.red, .dialog .btn.danger').first().click();
+    await settle(ph);
+    const after = await ph.evaluate(k => ({ link: localStorage.getItem('nasab.sync.v1'), n: Object.keys(JSON.parse(localStorage.getItem(k)).people).length }), KEY);
+    check(!after.link && after.n >= 50, 'unlinking forgets the key and keeps the family');
+    await pcCtx.close(); await phCtx.close();
   }
 
   /* ---------- 9. not inside another site's frame ---------- */

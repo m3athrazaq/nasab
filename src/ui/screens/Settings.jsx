@@ -14,6 +14,8 @@ import { lineageText } from '../../core/names.js';
 import { setPin } from './Lock.jsx';
 import { KIDS_ORDER } from './Tree.jsx';
 import { familyLabel } from './Families.jsx';
+import { syncSheet, syncLine } from './Sync.jsx';
+import { syncStatus, unlink } from '../../core/sync.js';
 
 /** a date written the way the settings now write it, with the other calendar in brackets */
 function bothExample() {
@@ -33,6 +35,12 @@ export function SettingsScreen() {
           <h2>{t('families')}</h2>
           <div class="list">
             <button class="row" onClick={() => { familiesSheet.value = true; }}><Icon name="tree" class="chev" /><span class="grow"><span class="title">{familyLabel(s)}</span><span class="meta">{t('families_sub', { n: count(Object.keys(s.others).length + 1, 'family') })}</span></span><Icon name="chevron" class="chev" /></button>
+          </div>
+        </div>
+        <div class="section">
+          <h2>{t('sync_title')}</h2>
+          <div class="list">
+            <button class="row" onClick={() => { syncSheet.value = true; }}><Icon name="sync" class={'chev' + (syncStatus.value.error ? ' err' : syncStatus.value.linked ? ' on' : '')} /><span class="grow"><span class="title">{syncStatus.value.linked ? syncStatus.value.repo : t('sync_link')}</span><span class={'meta' + (syncStatus.value.error ? ' err' : '')}>{syncLine()}</span></span><Icon name="chevron" class="chev" /></button>
           </div>
         </div>
         <div class="section">
@@ -93,6 +101,7 @@ export function SettingsScreen() {
             <button class="row" onClick={async () => {
               const ok = await confirmDialog({ title: t('erase_q'), text: t('erase_p'), ok: t('erase'), danger: true });
               if (!ok) return;
+              await unlink(); // the family in the repository is left as it is
               const d = defaultState();
               update(x => { Object.assign(x, d, { settings: { ...s.settings, onboarded: false, lock: '', lockSalt: '', lockLen: 0 } }); });
               clearUndo();
@@ -130,13 +139,13 @@ export function AboutScreen() {
         <p style="font-family:var(--ruqaa);font-size:44px;margin:4px 0 0;text-align:center">{t('app_name')}</p>
         <p class="lead" style="text-align:center">{t('tagline')}</p>
         {ar ? <>
-          <p>نَسَب يحفظ شجرة عائلتك على جهازك وحده: لا حساب ولا خادم ولا إعلانات ولا تتبّع. تطبيق أندرويد لا يملك صلاحية الإنترنت أصلاً، فلا تغادر بياناتك هاتفك إلا بملف تصدّره أنت.</p>
+          <p>نَسَب يحفظ شجرة عائلتك على جهازك: لا حساب ولا خادم ولا إعلانات ولا تتبّع. ولا تغادر بياناتك جهازك إلا في ملف تصدّره أنت، أو إن ربطته بمستودعك الخاص على GitHub (الإعدادات ← الربط بين الأجهزة)، فلا تذهب حينها إلا إلى ذلك المستودع: التطبيق لا يستطيع الاتصال بأي عنوان غيره.</p>
           <p>احفظ نسخة إكسل احتياطية بين حين وآخر في درايف أو أي مكان، فهي تحفظ كل شيء ومعها الصور، وتسترجعها على هاتف جديد. ويمكنك كتابة الشجرة أو تصحيحها في إكسل نفسه ثم استرجاعها.</p>
           <p>التاريخ الهجري بتقويم أم القرى. وصلة القرابة تُحسب من أقرب جدٍّ مشترك، وتظهر كل صلات القرابة إن تزوّج الأقارب.</p>
           <h3>الخطوط والمكتبات</h3>
           <p class="small">الخطوط Noto Naskh Arabic وReadex Pro وAref Ruqaa وAmiri وReem Kufi (برخصة SIL Open Font License). والمكتبات Preact وpdf-lib وfontkit وbidi-js وExcelJS (MIT) وd3 (ISC). نصوص الرخص في مجلدي fonts وvendor.</p>
         </> : <>
-          <p>Nasab keeps your family tree on your device only: no account, no server, no ads, no tracking. The Android app has no internet permission at all; your data leaves the phone only in files you export.</p>
+          <p>Nasab keeps your family tree on your device: no account, no server, no ads, no tracking. Your data leaves the device only in files you export, or — if you link it to your own private GitHub repository (Settings → Sync between devices) — to that repository alone: the app cannot connect to any other address.</p>
           <p>Save an Excel backup now and then (to Drive or anywhere): it keeps everything, photos included, and restores on a new phone. You can also write or correct the tree in Excel and restore it.</p>
           <p>Hijri dates use the Umm al-Qura calendar. Relations are found through the nearest common ancestor; when relatives married, every relation is shown.</p>
           <h3>Fonts and libraries</h3>

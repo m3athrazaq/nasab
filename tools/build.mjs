@@ -3,6 +3,7 @@
 //   vendor/pdf.js       PDF engine, loaded only when a PDF, image or SVG is made (pdf-lib, fontkit, bidi-js)
 //   vendor/exceljs.min.js  Excel engine, loaded only for backups (ExcelJS)
 //   vendor/viewer.js    the viewer put inside a shared HTML file
+//   vendor/qr.js        QR codes (drawing and reading), loaded only when linking another device
 //   index.html          page shell with the app's integrity hash (SRI) and styles
 //   sw.js               offline cache with the list of every file and a version derived from their hashes
 //   fonts/              the typefaces (woff2 for the screen, ttf for vector text in PDFs and SVGs)
@@ -83,6 +84,16 @@ put('vendor/pdf-LICENSES.txt', ['pdf-lib', '@pdf-lib/fontkit', 'bidi-js', 'd3-hi
   const lic = fs.readdirSync(dir).find(f => /^licen[cs]e/i.test(f));
   return `==== ${p} ====\n` + (lic ? fs.readFileSync(path.join(dir, lic), 'utf8') : 'MIT');
 }).join('\n\n'));
+const qrBuild = await esbuild.build({
+  entryPoints: [path.join(ROOT, 'src/vendor/qr-entry.js')],
+  bundle: true, minify: true, format: 'iife', globalName: 'NasabQR', platform: 'browser',
+  target: ['es2019'], write: false, legalComments: 'none'
+});
+put('vendor/qr.js', qrBuild.outputFiles[0].contents);
+put('vendor/qr-LICENSES.txt', [
+  '==== qrcode-generator ====\n' + fs.readFileSync(path.join(ROOT, 'node_modules/qrcode-generator/dist/qrcode.mjs'), 'utf8').split('\n').slice(0, 16).join('\n').replace(/^\/\/ ?/gm, '') + '\n(MIT License)',
+  '==== jsQR ====\n' + fs.readFileSync(path.join(ROOT, 'node_modules/jsqr/LICENSE'), 'utf8')
+].join('\n\n'));
 const viewerBuild = await esbuild.build({
   entryPoints: [path.join(ROOT, 'src/viewer/main.js')],
   bundle: true, minify: true, format: 'iife', platform: 'browser', target: ['es2020', 'safari15', 'chrome90'], write: false, legalComments: 'none', charset: 'utf8',
@@ -102,6 +113,7 @@ const appBuild = await esbuild.build({
     __ALLOW_FRAME__: process.env.PREVIEW ? 'true' : 'false',
     __EXCELJS_SRI__: sriOf('vendor/exceljs.min.js'),
     __PDF_SRI__: sriOf('vendor/pdf.js'),
+    __QR_SRI__: sriOf('vendor/qr.js'),
     __VIEWER_SRI__: sriOf('vendor/viewer.js')
   }
 });

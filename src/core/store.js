@@ -72,7 +72,7 @@ export function sUnion(u) {
     id: u.id,
     h: u.h == null ? '' : String(u.h).trim().slice(0, 40), w: u.w == null ? '' : String(u.w).trim().slice(0, 40),
     st: oneOf(u.st, ['m', 'd'], 'm'), md: cleanD(u.md), ed: cleanD(u.ed), note: note(u.note).slice(0, 1000),
-    ord: int(u.ord, 0, 99, 0), at: finite(+u.at, Date.now()),
+    ord: int(u.ord, 0, 99, 0), at: finite(+u.at, Date.now()), upd: finite(+u.upd, finite(+u.at, Date.now())),
     // how the couple's children are ordered, chosen from a parent's card ('' = the app's setting)
     ko: oneOf(u.ko, KIDS_ORDERS, '')
   };

@@ -42,7 +42,7 @@ function newPerson(s, fields) {
 }
 function newUnion(s, { h = '', w = '', ...rest } = {}) {
   const id = uid();
-  const u = sUnion({ ...rest, h, w, id, at: Date.now() });
+  const u = sUnion({ ...rest, h, w, id, at: Date.now(), upd: Date.now() });
   u.id = id; u.h = h; u.w = w;
   s.unions[id] = u;
   return id;
@@ -56,7 +56,9 @@ function coupleUnion(s, a, b) {
   return newUnion(s, aRole === 'h' ? { h: a, w: b } : { h: b, w: a });
 }
 const setP = (s, id, patch) => { s.people[id] = { ...s.people[id], ...patch, upd: Date.now() }; };
-const setU = (s, id, patch) => { s.unions[id] = { ...s.unions[id], ...patch }; };
+// every change of a person or a marriage carries its time (the later edit wins when two devices
+// changed the same detail before they synced)
+const setU = (s, id, patch) => { s.unions[id] = { ...s.unions[id], ...patch, upd: Date.now() }; };
 
 /* ---------------- people ---------------- */
 export function addPerson(fields) {
@@ -262,6 +264,7 @@ export function editUnion(unionId, patch) {
     const clean = sUnion({ ...s.unions[unionId], ...patch });
     const u = { ...s.unions[unionId] };
     for (const k of ['st', 'md', 'ed', 'note', 'ord']) if (k in patch) u[k] = clean[k];
+    u.upd = Date.now();
     s.unions[unionId] = u;
   }, { undo: 'edit' });
 }
@@ -393,6 +396,7 @@ export function mergePeople(keepId, dropId) {
     for (const k of PERSON_FIELDS) if (k !== 'pu' && k !== 'ord' && !p[k] && b[k]) p[k] = b[k];
     if (b.dead) p.dead = true;
     if (!p.pu && b.pu && s.unions[b.pu]) p.pu = b.pu;
+    p.upd = Date.now();
     s.people[keepId] = p;
     for (const k of Object.keys(s.unions)) {
       const u = s.unions[k];

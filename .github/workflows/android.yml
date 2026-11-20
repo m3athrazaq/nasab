@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '1.2.0'
+  APP_VERSION: '1.3.0'
   BUILD_NUMBER: ${{ github.run_number }}
   CERT_SHA256: '5B:50:0B:41:06:0B:1D:7F:88:95:3A:F6:1A:A6:71:6A:4F:28:02:3C:2F:15:3F:00:FB:D3:44:8A:1C:12:7E:6E'
 
@@ -108,7 +108,11 @@ jobs:
           grep -qi "SHA-256 digest: $WANT" verify.txt || { echo "::error::APK is not signed with the app's key"; exit 1; }
           "$BT/aapt2" dump badging "$APK" | grep -E "^package:|^sdkVersion|^targetSdkVersion|^application-label" | cut -c1-300
           "$BT/aapt2" dump permissions "$APK" | tee perms.txt
-          if grep -q "android.permission.INTERNET" perms.txt; then echo "::error::The app must not have internet access"; exit 1; fi
+          # internet only to sync with the user's own private GitHub repository, the camera only to read its QR code
+          if grep "^uses-permission" perms.txt | grep -vE "name='(android\.permission\.(INTERNET|CAMERA)|[A-Za-z0-9_.]+\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION)'" | grep -q .; then echo "::error::The app asks for a permission it must not have"; exit 1; fi
+          # and the page inside may connect to api.github.com and nowhere else
+          unzip -p "$APK" assets/public/index.html | grep -o "connect-src [^;]*" | tee csp.txt
+          [ "$(cat csp.txt)" = "connect-src 'self' https://api.github.com" ] || { echo "::error::The app's page may connect only to api.github.com"; exit 1; }
           if "$BT/aapt2" dump xmltree "$APK" --file AndroidManifest.xml | grep -q 'android:debuggable.*0xffffffff'; then echo "::error::Release APK must not be debuggable"; exit 1; fi
           unzip -l "$APK" | grep -E "assets/public/(index.html|app.js|vendor/pdf.js|vendor/exceljs.min.js|vendor/viewer.js|fonts/pdf/NotoNaskhArabic-Bold.ttf)$" | tee assets.txt
           [ "$(wc -l < assets.txt)" -eq 6 ] || { echo "::error::The app's files are missing from the APK"; exit 1; }

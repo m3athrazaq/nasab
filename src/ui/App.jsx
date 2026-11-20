@@ -19,6 +19,7 @@ import { StatsScreen } from './screens/Stats.jsx';
 import { ExportScreen, RestoreSheet, BusyOverlay, restoreFromFile } from './screens/Export.jsx';
 import { PosterScreen, BookScreen, CertificateScreen } from './screens/Prints.jsx';
 import { SettingsScreen, AboutScreen } from './screens/Settings.jsx';
+import { SyncSheet, useSyncNotices } from './screens/Sync.jsx';
 import { Onboarding } from './screens/Onboarding.jsx';
 import { LockScreen, unlocked } from './screens/Lock.jsx';
 
@@ -89,10 +90,11 @@ export function App() {
     return () => { stopRoute(); stopErr(); };
   }, []);
 
+  useSyncNotices();
   const s = state.value;
   if (!ready.value) return null;
   if (s.settings.lock && !unlocked.value) return <LockScreen />;
-  if (!s.settings.onboarded) return <><Onboarding /><RestoreSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
+  if (!s.settings.onboarded) return <><Onboarding /><RestoreSheet /><SyncSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
   if (newFamily.value) return <><Onboarding family /><RestoreSheet /><BusyOverlay /><Toasts /><DialogHost /></>;
   const rt = route.value;
   const known = isTab(rt.name) || PARENT[rt.name];
@@ -111,6 +113,7 @@ export function App() {
       <PickerSheet />
       <FamiliesSheet onRoot={() => { go('tree'); rootSheet.value = true; }} />
       <RestoreSheet />
+      <SyncSheet />
       <BusyOverlay />
       <Toasts />
       <DialogHost />

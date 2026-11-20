@@ -61,7 +61,10 @@ const P = {
   cap: 'M2 9l10-5 10 5-10 5zM6 11v5c3 2 9 2 12 0v-5',
   mail: 'M3 6h18v12H3zM3 7l9 6 9-6',
   undo: 'M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
-  copy: 'M8 8h12v12H8zM16 8V4H4v12h4'
+  copy: 'M8 8h12v12H8zM16 8V4H4v12h4',
+  sync: 'M19.5 10A7.8 7.8 0 0 0 5.8 6.6L4 8.5M4 4v4.5h4.5M4.5 14a7.8 7.8 0 0 0 13.7 3.4l1.8-1.9M20 20v-4.5h-4.5',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 20h2M20 14v2M6.5 6.5h1v1h-1zM16.5 6.5h1v1h-1zM6.5 16.5h1v1h-1z',
+  laptop: 'M5 5h14v10H5zM2.5 18.5h19'
 };
 
 export function Icon({ name, class: cls = '', fill = 'none', stroke = 'currentColor', size }) {

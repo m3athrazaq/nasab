@@ -13,6 +13,7 @@ import { newFamily } from '../app-state.js';
 import { Icon } from '../icons.jsx';
 import { Seg, toast } from '../kit.jsx';
 import { pickAndRestore } from './Export.jsx';
+import { syncSheet } from './Sync.jsx';
 
 function Mark() {
   // a tree being drawn: trunk, branches, then the seals of the generations
@@ -61,6 +62,7 @@ export function Onboarding({ family = false }) {
       <div class="foot">
         <button class="btn wide" onClick={() => setStep(1)}><Icon name="tree" />{t('ob_start')}</button>
         <button class="btn ghost wide" onClick={() => pickAndRestore()}><Icon name="upload" />{t('ob_import')}</button>
+        <button class="btn ghost wide" onClick={() => { syncSheet.value = true; }}><Icon name="sync" />{t('ob_link')}</button>
         <button class="linkbtn" onClick={() => { replaceState({ ...demoState(), settings: state.value.settings }); go('tree', true); }}>{t('ob_demo')}</button>
       </div>
     </div></div>
