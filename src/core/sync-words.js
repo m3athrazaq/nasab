@@ -35,6 +35,8 @@ export function newsText(news) {
 export function commitText(info, by) {
   const who = byName(by);
   if (info.kind === 'photo') return `${who}: ${t('sync_c_photo')}`;
+  if (info.kind === 'share') return `${who}: ${t('sync_c_share')}`;
+  if (info.kind === 'sharecfg') return `${who}: ${t('sync_c_sharecfg')}`;
   const fam = (info.after && info.after.fname) || (info.before && info.before.fname) || '';
   const tail = fam ? ` — ${fam}` : '';
   if (info.kind === 'removed') return `${who}: ${t('sync_c_family_gone')}${tail}`;

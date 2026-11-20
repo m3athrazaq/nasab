@@ -9,7 +9,8 @@
 // new family,
 // broken and crafted files, the PIN lock, offline use, refusing to run inside a frame, and sync between a
 // computer and a phone through a private repository (in memory, behind page.route): linking with the key
-// and with the link code, an edit arriving with Undo, the undo going back, unlinking.
+// and with the link code, an edit arriving with Undo, the undo going back, the view link for relatives
+// (made, kept by both devices, opened on an iPhone, changed), unlinking.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -522,11 +523,17 @@ let browser;
   {
     const { fakeGitHub } = await import('./fake-github.mjs');
     const gh = fakeGitHub({ owner: 'muaath', name: 'nasab-data' });
-    const toGitHub = ctx => ctx.route('https://api.github.com/**', async r => {
-      const q = r.request();
-      const out = gh.handle(q.method(), q.url(), q.headers(), q.postData() || '');
-      await r.fulfill({ status: out.status, headers: out.headers, body: out.body });
-    });
+    // the view link's public repository (the same access key reaches both)
+    const pubGh = fakeGitHub({ owner: 'muaath', name: 'nasab-share', isPrivate: false, token: gh.token });
+    const repoOf = url => { const p = new URL(url).pathname; return p === '/repos/' + pubGh.full || p.startsWith('/repos/' + pubGh.full + '/') ? pubGh : gh; };
+    const toGitHub = async ctx => {
+      await ctx.route('https://api.github.com/**', async r => {
+        const q = r.request();
+        const out = repoOf(q.url()).handle(q.method(), q.url(), q.headers(), q.postData() || '');
+        await r.fulfill({ status: out.status, headers: out.headers, body: out.body });
+      });
+      await ctx.route('https://raw.githubusercontent.com/**', r => r.abort()); // the view page's fallback: not reached here
+    };
     const watch = p => {
       p.on('pageerror', e => jsErrors.push(e.message));
       p.on('console', m => { if (/Content Security Policy|Refused to/i.test(m.text())) jsErrors.push('CSP: ' + m.text()); });
@@ -592,6 +599,56 @@ let browser;
     while (/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)) && Date.now() - t1 < 30000) await ph.waitForTimeout(300);
     check(!/صاحب سفن/.test(gh.read(`families/${sample.fid}.json`)), '…and the undo goes back to the repository');
     check(gh.commits().some(c => c.message.startsWith(AR.by_computer + ':')) && gh.commits().some(c => c.message.startsWith(AR.by_phone + ':')), 'each change is a commit that says which device made it');
+
+    // the view link for relatives: made on the computer; the phone keeps the very same copy; opened on an
+    // iPhone with no app, no account and no key but the one inside the link
+    await go(pc, 'settings');
+    await pc.locator('button.row', { hasText: gh.full }).click();
+    await pc.getByRole('button', { name: AR.sync_now, exact: true }).click(); // the phone's undo first
+    await pc.waitForFunction(k => JSON.parse(localStorage.getItem(k)).people.demom2.job !== 'صاحب سفن', KEY, { timeout: 15000 });
+    await pc.getByRole('button', { name: AR.share_make, exact: true }).click();
+    check(await pc.locator('input[name="share-repo"]').inputValue() === pubGh.full, 'the view link suggests a public repository beside the private one');
+    await pc.locator('.sharebox form button[type="submit"]').click();
+    await pc.locator('.toast', { hasText: AR.share_made }).waitFor({ timeout: 15000 });
+    const conf = JSON.parse(gh.read('share.json') || 'null');
+    const made = conf && conf.repo === pubGh.full && /^[A-Za-z0-9_-]{43}$/.test(conf.key) && !!pubGh.readBytes('tree.bin') && pubGh.commits().length === 1;
+    check(made, 'the computer makes the view link: share.json in the private repository, the encrypted copy in the public one' + (made ? '' : ' — ' + JSON.stringify(conf) + ' ' + pubGh.log.join(', ') + ' ' + await pc.locator('.sharebox').innerText()));
+    check(!/الراشد|demom2/.test(Buffer.from(pubGh.readBytes('tree.bin')).toString('utf8')), '…which shows nothing without the key');
+    await pc.getByRole('button', { name: AR.share_copy, exact: true }).click();
+    const viewUrl = await pc.evaluate(() => navigator.clipboard.readText());
+    check(viewUrl === 'https://m3athrazaq.github.io/nasab/view.html#' + pubGh.full + '/' + conf.key, 'the link can be copied');
+    const shareOk = AR.share_ok.split('{')[0];
+    await ph.getByRole('button', { name: AR.sync_now, exact: true }).click();
+    await ph.locator('.sharebox .small', { hasText: shareOk }).waitFor({ timeout: 15000 });
+    check(pubGh.commits().length === 1, 'the phone learns the link and holds the very same copy: nothing is written again');
+
+    const ipCtx = await browser.newContext({ ...devices['iPhone 13'], locale: 'ar-KW', timezoneId: 'Asia/Kuwait', serviceWorkers: 'block' });
+    await toGitHub(ipCtx);
+    const ip = await ipCtx.newPage(); watch(ip);
+    const viewAt = BASE + 'view.html#' + viewUrl.split('#')[1];
+    const view = async () => {
+      await ip.goto('about:blank'); await ip.goto(viewAt);
+      await ip.waitForFunction(() => { const m = document.querySelector('#msg'); return (m.hidden && document.querySelector('#tree svg')) || (!m.hidden && !m.className); }, null, { timeout: 15000 });
+      return ip.evaluate(() => ({ msg: document.querySelector('#msg').hidden ? '' : document.querySelector('#msg').innerText, text: document.body.textContent, title: document.title, data: JSON.stringify(window.NASAB_DATA || null) }));
+    };
+    let seen = await view();
+    const living = sample.people.demoa4; // alive, with his birth date
+    check(!seen.msg && seen.title.includes('الراشد') && seen.text.includes('عبدالله') && !/"(tel|mail)"/.test(seen.data), 'the link opens the tree on an iPhone, without the app: ' + seen.title);
+    check(!!living && !living.dead && JSON.parse(seen.data).people.demoa4.b !== '', '…with the dates of the living too (as the owner chose)');
+    await ip.goto('about:blank');
+    await ip.goto(BASE + 'view.html#' + pubGh.full + '/' + 'A'.repeat(43));
+    await ip.locator('#msg p[lang="ar"]').waitFor({ timeout: 15000 });
+    check(/لم يعد يفتح/.test(await ip.locator('#msg').innerText()), 'a wrong key opens nothing, and says so');
+
+    // change the link: the old one stops opening the tree
+    await pc.getByRole('button', { name: AR.share_new, exact: true }).click();
+    await pc.locator('.dialog .btn.red, .dialog .btn.danger').first().click();
+    await pc.locator('.toast', { hasText: AR.share_renewed }).waitFor({ timeout: 15000 });
+    const conf2 = JSON.parse(gh.read('share.json'));
+    check(conf2.key !== conf.key && pubGh.commits().length === 2, 'changing the link: a new key, and the copy sent again with it');
+    seen = await view();
+    check(/لم يعد يفتح/.test(seen.msg) && !seen.data.includes('demoa4'), 'the old link no longer opens the tree');
+    await ipCtx.close();
 
     // unlink: the family stays, syncing stops
     await ph.getByRole('button', { name: AR.sync_unlink, exact: true }).click();

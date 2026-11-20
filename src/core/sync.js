@@ -10,6 +10,8 @@ import { photoBlob, putPhotoBlob } from './photos.js';
 import { github, GitHubError, REPO_RE, looksLikeToken } from './github.js';
 import { syncRound, emptyMeta } from './sync-engine.js';
 import { applyToState } from './sync-merge.js';
+import { sharePayload, publishShare, readShareConfig, shareConfigText, shareCfgFrom, newShareKey, viewLink, SHARE_CONFIG, SHARE_PATH } from './share.js';
+import { lang, digits, calPref, calBoth } from './i18n.js';
 import { byName, newsText, commitText } from './sync-words.js';
 import { isNative, isIOS } from './native.js';
 
@@ -20,6 +22,8 @@ const POLL = 15000, AFTER_EDIT = 4000, MIN_GAP = 8000;
 export const syncStatus = signal({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false });
 /** what arrived from another device (the app shows it with Undo): { text, at } */
 export const syncNews = signal(null);
+/** the view link for relatives: { on, link, busy, error, at } */
+export const shareStatus = signal({ on: false, link: '', busy: false, error: '', at: 0 });
 
 let cfg = null;          // { repo, token, branch, device }
 let meta = null;         // sync-engine's memory (the copies both sides had, the files seen)
@@ -59,6 +63,7 @@ export async function startSync() {
     try { meta = JSON.parse(await idbGet('kv', META_KEY)) || emptyMeta(); } catch (e) { meta = emptyMeta(); }
     if (!meta || typeof meta !== 'object' || !meta.fams) meta = emptyMeta();
     setStatus({ linked: true, repo: cfg.repo, device: cfg.device });
+    if (meta.share) setShare({ on: true, link: viewLink(meta.share) });
   }
   // a change here → send it a few seconds later (several quick edits go together)
   effect(() => {
@@ -126,6 +131,7 @@ async function run() {
     await saveMeta();
     backoff = 0;
     setStatus({ busy: false, error: '', last: Date.now(), photos: !!r.photosPending });
+    await keepShareCurrent();
     if (r.photosPending) schedule(60000);
     else if (r.again || r.stale || (state.value.rev !== syncedRev && state.value.rev !== appliedRev)) schedule(AFTER_EDIT);
     return true;
@@ -166,6 +172,80 @@ export async function unlink() {
   clearTimeout(timer);
   await saveCfg(); await saveMeta();
   setStatus({ linked: false, busy: false, error: '', last: 0, repo: '', device: '', photos: false });
+  shareStatus.value = { on: false, link: '', busy: false, error: '', at: 0 };
 }
 /** the link to hand to another device (QR code) — only from this screen, never stored anywhere else */
 export const currentLink = () => (cfg ? { repo: cfg.repo, token: cfg.token, branch: cfg.branch } : null);
+
+/* ---------- the view link for relatives (share.js) ---------- */
+const setShare = patch => { shareStatus.value = { ...shareStatus.value, ...patch }; };
+const sha256 = async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(x => x.toString(16).padStart(2, '0')).join('');
+const photoBytes = id => photoBlob(id).then(b => (b ? b.arrayBuffer().then(x => new Uint8Array(x)) : null), () => null);
+
+// every copy stays in the public repository's history: at most one new copy every two minutes (a burst
+// of edits makes one copy, sent by a later round); and at each start, then every half hour, the copy there
+// is compared with this one (another device a moment behind may have replaced it with an older one)
+const SHARE_GAP = 120000, SHARE_RECHECK = 1800000;
+let shareSentAt = 0, shareCheckedAt = 0;
+
+/** after each sync: the encrypted copy in the public repository follows the family (only when it changed) */
+async function keepShareCurrent(force = false) {
+  const c = meta && meta.share;
+  if (!c) { if (shareStatus.value.on) setShare({ on: false, link: '', error: '', busy: false }); return; }
+  setShare({ on: true, link: viewLink(c) });
+  try {
+    const { text, missing } = await sharePayload(state.value, c.cfg, photoBytes);
+    if (missing.length) return; // photos still arriving: another device's copy would have them
+    const hash = await sha256(c.repo + '/' + c.key + '/' + text);
+    const now = Date.now();
+    if (!force && hash === meta.sharePub && now - shareCheckedAt < SHARE_RECHECK) return;
+    if (!force && hash !== meta.sharePub && now - shareSentAt < SHARE_GAP) return; // a later round sends it
+    setShare({ busy: true });
+    const sh = github({ repo: c.repo, token: cfg.token });
+    await sh.info();
+    const r = await publishShare({ gh: sh, config: c, text, message: commitText({ kind: 'share' }, cfg.device) });
+    if (r.sent) shareSentAt = Date.now();
+    shareCheckedAt = Date.now();
+    meta.sharePub = hash;
+    await saveMeta();
+    setShare({ busy: false, error: '', at: Date.now() });
+  } catch (e) {
+    setShare({ busy: false, error: (e && e.code) || 'http' });
+  }
+}
+/** share.json written to the private repository (a new one, or a new key) */
+async function writeShareConfig(c) {
+  const gh = github({ repo: cfg.repo, token: cfg.token, branch: cfg.branch });
+  const h = await gh.head('');
+  const cur = h.empty ? '' : (await gh.tree(h.sha)).files.get(SHARE_CONFIG) || '';
+  const r = await gh.put(SHARE_CONFIG, new TextEncoder().encode(shareConfigText(c)), commitText({ kind: 'sharecfg' }, cfg.device), cur);
+  meta.share = readShareConfig(shareConfigText(c));
+  meta.shareSha = r.sha;
+  meta.head = ''; meta.files = null; // our own write: the next round reads the list again
+  meta.sharePub = '';
+  await saveMeta();
+}
+/** make the view link: repo = a public repository the access key can write to */
+export async function createShare(repo) {
+  if (!cfg) throw new GitHubError('auth');
+  repo = String(repo || '').trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  if (!REPO_RE.test(repo)) throw new GitHubError('notfound', 0, 'repository name');
+  const sh = github({ repo, token: cfg.token });
+  const info = await sh.info();
+  if (info.private) throw new GitHubError('private', 0, 'the view page reads it without a key');
+  const s = state.value.settings;
+  await writeShareConfig({ repo: info.fullName || repo, key: newShareKey(), path: SHARE_PATH, cfg: shareCfgFrom({ ...s, lang: lang.value, digits: digits.value, cal: calPref.value, both: calBoth.value }) });
+  await keepShareCurrent(true);
+  if (shareStatus.value.error) throw new GitHubError(shareStatus.value.error);
+  return shareStatus.value.link;
+}
+/** a new key: the old link stops opening the tree */
+export async function renewShare() {
+  if (!cfg || !meta || !meta.share) return '';
+  await writeShareConfig({ ...meta.share, key: newShareKey() });
+  await keepShareCurrent(true);
+  if (shareStatus.value.error) throw new GitHubError(shareStatus.value.error);
+  return shareStatus.value.link;
+}
+/** the public repository suggested for a new link: the same owner as the private one */
+export const suggestedShareRepo = () => (cfg ? cfg.repo.split('/')[0] + '/nasab-share' : '');

@@ -1,8 +1,8 @@
 /* نَسَب — service worker: keeps the web version working fully offline (fonts, the PDF, Excel and
    viewer engines are all cached on install). Only the app's own files are cached; nothing is
    ever sent anywhere. APPV and ASSETS are written by tools/build.mjs. */
-const APPV = 'f68d80d5a15f';
-const ASSETS = ["./","./index.html","./app.js?v=f090858a99df","./apple-touch-icon.png","./favicon.png","./fonts/aref-ruqaa-arabic-700-normal.woff2","./fonts/aref-ruqaa-latin-700-normal.woff2","./fonts/noto-naskh-arabic-arabic-400-normal.woff2","./fonts/noto-naskh-arabic-arabic-700-normal.woff2","./fonts/noto-naskh-arabic-latin-400-normal.woff2","./fonts/noto-naskh-arabic-latin-700-normal.woff2","./fonts/pdf/Amiri-Bold.ttf","./fonts/pdf/Amiri-Regular.ttf","./fonts/pdf/ArefRuqaa-Bold.ttf","./fonts/pdf/NotoNaskhArabic-Bold.ttf","./fonts/pdf/NotoNaskhArabic-Regular.ttf","./fonts/pdf/ReadexPro-Regular.ttf","./fonts/pdf/ReadexPro-SemiBold.ttf","./fonts/pdf/ReemKufi-Bold.ttf","./fonts/readex-pro-arabic-400-normal.woff2","./fonts/readex-pro-arabic-500-normal.woff2","./fonts/readex-pro-arabic-600-normal.woff2","./fonts/readex-pro-latin-400-normal.woff2","./fonts/readex-pro-latin-500-normal.woff2","./fonts/readex-pro-latin-600-normal.woff2","./icon-192.png","./icon-512.png","./icon-maskable-512.png","./manifest.webmanifest","./vendor/exceljs.min.js","./vendor/pdf.js","./vendor/qr.js","./vendor/viewer.js"];
+const APPV = '025bf447baf5';
+const ASSETS = ["./","./index.html","./app.js?v=b124cde1ad93","./apple-touch-icon.png","./favicon.png","./fonts/aref-ruqaa-arabic-700-normal.woff2","./fonts/aref-ruqaa-latin-700-normal.woff2","./fonts/noto-naskh-arabic-arabic-400-normal.woff2","./fonts/noto-naskh-arabic-arabic-700-normal.woff2","./fonts/noto-naskh-arabic-latin-400-normal.woff2","./fonts/noto-naskh-arabic-latin-700-normal.woff2","./fonts/pdf/Amiri-Bold.ttf","./fonts/pdf/Amiri-Regular.ttf","./fonts/pdf/ArefRuqaa-Bold.ttf","./fonts/pdf/NotoNaskhArabic-Bold.ttf","./fonts/pdf/NotoNaskhArabic-Regular.ttf","./fonts/pdf/ReadexPro-Regular.ttf","./fonts/pdf/ReadexPro-SemiBold.ttf","./fonts/pdf/ReemKufi-Bold.ttf","./fonts/readex-pro-arabic-400-normal.woff2","./fonts/readex-pro-arabic-500-normal.woff2","./fonts/readex-pro-arabic-600-normal.woff2","./fonts/readex-pro-latin-400-normal.woff2","./fonts/readex-pro-latin-500-normal.woff2","./fonts/readex-pro-latin-600-normal.woff2","./icon-192.png","./icon-512.png","./icon-maskable-512.png","./manifest.webmanifest","./vendor/exceljs.min.js","./vendor/pdf.js","./vendor/qr.js","./vendor/share.js","./vendor/viewer.js","./view.html"];
 const VERSION = 'nasab-v' + APPV;
 const SCOPE = self.registration.scope;
 const KNOWN = new Set(ASSETS.map(u => new URL(u, SCOPE).href));
@@ -39,7 +39,8 @@ self.addEventListener('fetch', e => {
       try {
         return await Promise.race([net, new Promise((_, no) => setTimeout(() => no(new Error('slow')), 4000))]);
       } catch (err) {
-        return (await fromCache('./index.html')) || net;
+        // (the view page for relatives falls back to its own copy, never to the app)
+        return (url.pathname.endsWith('/view.html') && await fromCache('./view.html')) || (await fromCache('./index.html')) || net;
       }
     })());
     return;

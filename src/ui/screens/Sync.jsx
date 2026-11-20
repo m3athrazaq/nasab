@@ -3,7 +3,7 @@
 // see when it last synced, sync now, show the code again, or unlink.
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { signal, effect } from '@preact/signals';
-import { syncStatus, syncNews, syncNow, link, unlink, currentLink, byName } from '../../core/sync.js';
+import { syncStatus, syncNews, syncNow, link, unlink, currentLink, byName, shareStatus, createShare, renewShare, suggestedShareRepo } from '../../core/sync.js';
 import { linkCode, readLinkCode } from '../../core/github.js';
 import { undo, undoInfo } from '../../core/store.js';
 import { isNative } from '../../core/native.js';
@@ -168,6 +168,7 @@ function Linked({ s, showCode, setShowCode, onClose }) {
         <button class="btn ghost" aria-expanded={showCode ? 'true' : 'false'} onClick={() => setShowCode(!showCode)}><Icon name="qr" />{t('sync_other')}</button>
       </div>
       {showCode && <LinkCode />}
+      <ShareBlock />
       <p class="hint" style="margin-top:16px;line-height:1.7">{t('sync_key_note')}</p>
       <button class="linkbtn err" style="margin-top:6px" onClick={async () => {
         const ok = await confirmDialog({ title: t('sync_unlink_q'), text: t('sync_unlink_p'), ok: t('sync_unlink'), danger: true });
@@ -259,6 +260,52 @@ function Scanner({ onCode, onPaste, onCancel, busy, err }) {
         <button class="btn ghost" onClick={onPaste}><Icon name="copy" />{t('sync_paste')}</button>
         <button class="btn ghost" onClick={onCancel}>{t('cancel')}</button>
       </div>
+    </div>
+  );
+}
+
+const ShareErr = ({ code }) => <p class="hint err" role="alert" style="line-height:1.7">{t('share_e_' + code)}</p>;
+/** the view link for relatives: made once (a public repository for the encrypted copy), then copied or
+ *  sent; a new link makes the old one stop opening the tree */
+function ShareBlock() {
+  const sh = shareStatus.value;
+  const [form, setForm] = useState(false);
+  const [repo, setRepo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const run = async fn => { setBusy(true); setErr(''); try { await fn(); } catch (e) { setErr((e && e.code) || 'http'); } setBusy(false); };
+  const copy = async () => { try { await navigator.clipboard.writeText(sh.link); toast(t('share_copied')); } catch (e) { toast(t('sync_e_copy')); } };
+  const send = async () => {
+    if (navigator.share) { try { await navigator.share({ title: t('share_title'), url: sh.link }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+    copy();
+  };
+  return (
+    <div class="sharebox">
+      <h3>{t('share_title')}</h3>
+      {sh.on ? <>
+        <p class="hint" style="line-height:1.7;margin-top:2px">{t('share_about')}</p>
+        <p class={'small ' + (sh.error ? 'err' : 'muted')} style="margin:6px 0 0">{sh.busy ? t('share_busy') : sh.error ? t('share_e_' + sh.error) : sh.at ? t('share_ok', { when: whenText(sh.at) }) : t('share_ready')}</p>
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn" onClick={send}><Icon name="share" />{t('share_send')}</button>
+          <button class="btn ghost" onClick={copy}><Icon name="copy" />{t('share_copy')}</button>
+        </div>
+        <button class="linkbtn" style="margin-top:6px" disabled={busy} onClick={async () => {
+          const ok = await confirmDialog({ title: t('share_new_q'), text: t('share_new_p'), ok: t('share_new'), danger: true });
+          if (ok) run(async () => { await renewShare(); toast(t('share_renewed')); });
+        }}>{busy ? t('share_busy') : t('share_new')}</button>
+      </> : !form ? <>
+        <p class="hint" style="line-height:1.7;margin-top:2px">{t('share_about')}</p>
+        <button class="btn ghost wide" style="margin-top:10px" onClick={() => { setRepo(suggestedShareRepo()); setForm(true); }}><Icon name="link" />{t('share_make')}</button>
+      </> : <form class="syncform" onSubmit={e => { e.preventDefault(); if (!busy) run(async () => { await createShare(repo); toast(t('share_made')); setForm(false); }); }}>
+        <p class="hint" style="line-height:1.7;margin-top:2px">{t('share_make_p')}</p>
+        <label class="field"><span class="lab">{t('share_repo')}</span>
+          <input class="input" dir="ltr" name="share-repo" autoComplete="off" autoCapitalize="off" spellcheck={false} value={repo} onInput={e => setRepo(e.currentTarget.value)} />
+        </label>
+        {err && <ShareErr code={err} />}
+        <button class="btn wide" style="margin-top:12px" type="submit" disabled={busy || !/\S+\/\S+/.test(repo)}>{busy ? <Spinner size={20} /> : <Icon name="link" />}{t('share_make')}</button>
+        <button class="linkbtn" type="button" style="margin-top:6px" onClick={() => { setForm(false); setErr(''); }}>{t('cancel')}</button>
+      </form>}
+      {sh.on && err && <ShareErr code={err} />}
     </div>
   );
 }

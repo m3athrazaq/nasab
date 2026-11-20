@@ -8,6 +8,9 @@
 //   node tools/nasab-data.mjs <…> find <name words…> [--family <name or id>]
 //   node tools/nasab-data.mjs <…> show <person id> [--family …]
 //   node tools/nasab-data.mjs <…> edit <script.mjs> [--family …] [--dry]
+//   node tools/nasab-data.mjs <clone folder> share <clone of the public repository> [--new]
+//       the view link for relatives: share.json (made the first time, or a new key with --new) and the
+//       encrypted copy (tree.bin) in the public repository, then the link
 //
 // A clone folder (git clone of the private repository): read and written with git — how a Claude
 // session writes (its GitHub access lets git push, not the write calls of the API). The clone is the
@@ -45,10 +48,12 @@ const { nameKey } = await imp('src/core/util.js');
 const { memoryDevice } = await imp('src/core/sync-device.js');
 const M = await imp('src/core/sync-merge.js');
 const { commitText, changesText } = await imp('src/core/sync-words.js');
+const SH = await imp('src/core/share.js');
 
 const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); if (i < 0) return null; const v = args[i + 1]; args.splice(i, 2); return v; };
 const dry = args.includes('--dry'); if (dry) args.splice(args.indexOf('--dry'), 1);
+const renew = args.includes('--new'); if (renew) args.splice(args.indexOf('--new'), 1);
 const famArg = flag('--family');
 const [repo, cmd, ...rest] = args;
 const die = msg => { console.error(msg); process.exit(1); };
@@ -73,6 +78,32 @@ if (gitMode) {
 const fams = M.familiesOf(dev.state);
 const label = f => f.fname || (() => { const ix = buildIndex({ ...f, settings: dev.state.settings }); const r = f.root && ix.P[f.root] ? f.root : ix.defaultRoot(f.me); return r ? ix.familyOf(r) || ix.P[r].n : ''; })() || f.fid;
 const withPeople = [...fams.values()].filter(f => Object.keys(f.people).length);
+
+if (cmd === 'share') {
+  if (!gitMode) die('share works with a clone folder of the private repository');
+  const pubDir = path.resolve(rest[0] || '');
+  if (!rest[0] || !fs.existsSync(path.join(pubDir, '.git'))) die('share needs a git clone of the public repository');
+  const pub = gitClone(pubDir);
+  const origin = execFileSync('git', ['-C', pubDir, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
+  const pubRepo = (origin.match(/github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/) || [])[1];
+  if (!pubRepo) die('cannot tell the public repository from ' + origin);
+  // share.json: kept as it is, unless there is none or a new key is asked for
+  let conf = clone.readFile(SH.SHARE_CONFIG) ? SH.readShareConfig(clone.readFile(SH.SHARE_CONFIG)) : null;
+  if (!conf || renew || conf.repo !== pubRepo) {
+    conf = { repo: pubRepo, key: renew || !conf ? SH.newShareKey() : conf.key, path: SH.SHARE_PATH, cfg: conf ? conf.cfg : SH.shareCfgFrom(defaultState().settings) };
+    const out = clone.saveFile(SH.SHARE_CONFIG, SH.shareConfigText(conf), commitText({ kind: 'sharecfg' }, 'claude'));
+    console.log(`share.json: ${out}`);
+  }
+  // the copy: every family, the photos as stored in the private repository (the same bytes as on the devices)
+  const photo = async id => { const f = path.join(path.resolve(repo), 'photos', id + '.jpg'); return fs.existsSync(f) ? new Uint8Array(fs.readFileSync(f)) : null; };
+  const { text, missing } = await SH.sharePayload(dev.state, conf.cfg, photo);
+  if (missing.length) console.error(`photos not in the repository yet: ${missing.length} (the devices will add them)`);
+  const bytes = await SH.sealShare(conf.key, text);
+  const sent = pub.saveFile(SH.SHARE_PATH, bytes, commitText({ kind: 'share' }, 'claude'));
+  console.log(`${SH.SHARE_PATH}: ${sent}`);
+  console.log('link: ' + SH.viewLink(conf));
+  process.exit(0);
+}
 
 if (cmd === 'families') {
   for (const f of withPeople) console.log(`${f.fid}\t${label(f)}\t${Object.keys(f.people).length} people\t${Object.keys(f.unions).length} marriages`);
@@ -162,14 +193,37 @@ if (gitMode) {
  *  wrote meantime (refused push → fetch → the app's merge → push again) */
 function gitClone(dir) {
   const git = (...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const branch = git('rev-parse', '--abbrev-ref', 'HEAD') === 'HEAD' ? 'main' : git('rev-parse', '--abbrev-ref', 'HEAD');
+  let branch = 'main';
+  try { branch = git('symbolic-ref', '--short', 'HEAD') || 'main'; } catch (e) { /* detached: main */ }
   const sync = () => {
-    git('fetch', '-q', '--depth=1', 'origin', branch);
+    try { git('fetch', '-q', '--depth=1', 'origin', branch); } catch (e) {
+      // a repository with nothing in it yet: the first commit makes its main branch
+      if (!/couldn't find remote ref|not our ref|does not appear to/i.test(String(e.stderr || e.message))) throw e;
+      if (branch !== 'main') { git('symbolic-ref', 'HEAD', 'refs/heads/main'); branch = 'main'; }
+      return;
+    }
     git('reset', '-q', '--hard', 'FETCH_HEAD'); // the tool's own copy: always GitHub's latest
   };
   const fileAt = (rev, p) => { try { return execFileSync('git', ['-C', dir, 'show', `${rev}:${p}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch (e) { return null; } };
   sync();
+  const who = () => { try { return git('config', 'user.email') ? [] : null; } catch (e) { return null; } };
   return {
+    readFile(p) { const f = path.join(dir, p); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null; },
+    /** one file written as it is (no merge: share.json and the view copy are written whole); unchanged → no commit */
+    saveFile(p, data, message) {
+      for (let i = 0; i < 4; i++) {
+        fs.mkdirSync(path.dirname(path.join(dir, p)), { recursive: true });
+        fs.writeFileSync(path.join(dir, p), data);
+        git('add', p);
+        if (!git('status', '--porcelain', '--', p)) return 'unchanged';
+        git(...(who() || ['-c', 'user.name=Claude', '-c', 'user.email=noreply@anthropic.com']), 'commit', '-q', '-m', message + trailer);
+        try { git('-c', 'push.negotiate=true', 'push', '-q', 'origin', 'HEAD:' + branch); return git('rev-parse', '--short', 'HEAD'); } catch (e) {
+          if (!/rejected|non-fast-forward|fetch first/i.test(String(e.stderr || e.message))) throw e;
+        }
+        sync();
+      }
+      throw new Error('could not send after several tries');
+    },
     read() {
       const out = new Map(), d = path.join(dir, 'families');
       if (!fs.existsSync(d)) return out;

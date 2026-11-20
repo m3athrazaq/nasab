@@ -11,6 +11,7 @@
 // GitHub if it changed meanwhile (then the round runs again) → photos, a few at a time.
 import { familiesOf, planSync, toText, fromText, familyPath, photoPath, FAMILY_RE } from './sync-merge.js';
 import { GitHubError } from './github.js';
+import { readShareConfig, SHARE_CONFIG } from './share.js';
 
 export const emptyMeta = () => ({ head: '', etag: '', heads: [], fams: {}, files: null });
 const PHOTO_UP = 8, PHOTO_DOWN = 24, PHOTO_MAX = 6 * 1024 * 1024;
@@ -41,6 +42,13 @@ export async function syncRound(env, { trustRemote = false } = {}) {
   const moved = headSha !== meta.head || !meta.files;
   if (!moved && env.dirty === false && !meta.photosPending) return { idle: true };
   if (moved) adoptHead(meta, headSha, files);
+
+  // the view link's settings (share.json), read again only when the file changed
+  const sj = files.get(SHARE_CONFIG) || '';
+  if (sj !== (meta.shareSha || '')) {
+    meta.share = sj ? readShareConfig(dec.decode(await gh.blob(sj))) : null;
+    meta.shareSha = sj;
+  }
 
   // 2. the families in the repository (an unchanged file is never read again)
   const remote = new Map(), unreadable = new Set();

@@ -26,7 +26,9 @@ export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_
     const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
     log.push(method + ' ' + u.pathname);
     if (method === 'OPTIONS') return { status: 204, body: '', headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-None-Match, Accept' } };
-    if (h.authorization !== 'Bearer ' + token) return res(401, { message: 'Bad credentials' });
+    if (!h.authorization && repo.private) return res(404, { message: 'Not Found' }); // as GitHub answers strangers
+    const anonymousRead = !h.authorization && method === 'GET';
+    if (!anonymousRead && h.authorization !== 'Bearer ' + token) return res(401, { message: 'Bad credentials' });
     const pre = `/repos/${owner}/${name}`;
     if (!u.pathname.startsWith(pre)) return res(404, { message: 'Not Found' });
     const p = u.pathname.slice(pre.length);
@@ -48,6 +50,15 @@ export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_
     if (method === 'GET' && (m = p.match(/^\/git\/blobs\/([0-9a-f]{40})$/))) {
       const b = repo.blobs.get(m[1]);
       return b ? res(200, { sha: m[1], encoding: 'base64', content: B64(b), size: b.length }) : res(404, { message: 'Not Found' });
+    }
+    if (method === 'GET' && (m = p.match(/^\/contents\/(.+)$/))) {
+      // one file: its raw bytes (Accept: application/vnd.github.raw) or as JSON with base64 content
+      const c = head(), path = decodeURIComponent(m[1]);
+      const sha = c && c.files.get(path);
+      if (!sha) return res(404, { message: 'Not Found' });
+      const b = repo.blobs.get(sha);
+      if (/raw/.test(h.accept || '')) return { status: 200, body: Buffer.from(b), headers: { 'Content-Type': 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } };
+      return res(200, { path, sha, size: b.length, encoding: 'base64', content: B64(b) });
     }
     if ((method === 'PUT' || method === 'DELETE') && (m = p.match(/^\/contents\/(.+)$/))) {
       const path = decodeURIComponent(m[1]);
@@ -79,5 +90,6 @@ export function fakeGitHub({ owner = 'me', name = 'nasab-data', token = 'github_
   }
   /** the files at the head: path → text (for checks) */
   const read = path => { const c = head(); const sha = c && c.files.get(path); return sha ? repo.blobs.get(sha).toString('utf8') : null; };
-  return { repo, token, full: `${owner}/${name}`, handle, fetch: fetchFn, head, read, log, commits: () => repo.commits };
+  const readBytes = path => { const c = head(); const sha = c && c.files.get(path); return sha ? new Uint8Array(repo.blobs.get(sha)) : null; };
+  return { repo, token, full: `${owner}/${name}`, handle, fetch: fetchFn, head, read, readBytes, log, commits: () => repo.commits };
 }

@@ -2,7 +2,8 @@
 // model and its repairs, editing and undo, GEDCOM and Excel round trips, and every print (poster in all
 // looks and shapes, the family book, the certificate) drawn to PDF and SVG; sync between devices through a
 // private repository in memory (merging, deletions, conflicts, photos, broken files, the link code and its
-// QR code), and the tool Claude edits the family with (through the API and through a git clone).
+// QR code), the view link for relatives (what its copy holds, the encryption, share.json, the public
+// repository), and the tool Claude edits the family with (through the API and through a git clone).
 //   node tests/core.test.mjs        prints PASS/FAIL lines; exits 1 on any failure
 import fs from 'node:fs';
 import path from 'node:path';
@@ -664,6 +665,155 @@ await section('sync between devices', async () => {
   const px = new Uint8ClampedArray(side * side * 4).fill(255);
   rows.forEach((row, y) => [...row].forEach((c, x) => { if (c === '1') for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) { const i = (((y + q) * k + dy) * side + (x + q) * k + dx) * 4; px[i] = px[i + 1] = px[i + 2] = 0; } }));
   eq('the link\'s QR code reads back as the same link', box.Q.read(px, side, side), real);
+});
+
+/* ---------------- the view link for relatives ---------------- */
+await section('the view link for relatives', async () => {
+  const SH = await import('../src/core/share.js');
+  const { viewerData } = await import('../src/export/viewer-data.js');
+  const { fakeGitHub } = await import('./fake-github.mjs');
+  const { memoryDevice } = await import('../src/core/sync-device.js');
+  const { github } = await import('../src/core/github.js');
+  const M = await import('../src/core/sync-merge.js');
+  const refused = async (k, bytes) => { try { await SH.openShare(k, bytes); return false; } catch (e) { return true; } };
+
+  // two families; one person with a phone number, an email, a residence, a note and a photo
+  const base = sanitizeState({ ...demoState(), settings: { onboarded: true } });
+  base.people.demom2 = { ...base.people.demom2, tel: '+96550001234', mail: 'm2@example.com', res: 'الجهراء', edu: 'هندسة', note: 'ملاحظة للعائلة', photo: 'photo1234' };
+  state.value = sanitizeState(base);
+  const firstFid = state.value.fid;
+  A.addFamily({ name: 'الثانية' }); A.buildChain(['فهد', 'سعد'], { family: 'السعد', me: false });
+  const two = state.value;                       // the second family open
+  A.switchFamily(firstFid);
+  const one = state.value;                       // the first one open
+  const cfg = SH.shareCfgFrom(one.settings);
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7, 6]);
+  const photos = id => Promise.resolve(id === 'photo1234' ? jpeg : null);
+
+  // what goes in the copy
+  const a = await SH.sharePayload(one, cfg, photos);
+  const b = await SH.sharePayload(two, cfg, photos);
+  const shuffled = { ...one, people: Object.fromEntries(Object.entries(one.people).reverse()), unions: Object.fromEntries(Object.entries(one.unions).reverse()) };
+  check('the copy is the same on every device: whichever family is open, in whatever order', a.text === b.text && a.text === (await SH.sharePayload(shuffled, cfg, photos)).text);
+  const o = JSON.parse(a.text);
+  check('every family is in it', o.fams.length === 2 && o.fams.some(f => f.fname === 'الثانية'));
+  check('no phone numbers, emails, residence or education in it', !/50001234|m2@example|الجهراء|هندسة/.test(a.text) && !/"(tel|mail|res|edu|kun|laq|nick)":/.test(a.text), a.text.slice(0, 200));
+  check('names, dates, notes and the photo are', /ملاحظة للعائلة/.test(a.text) && o.photos.photo1234 === Buffer.from(jpeg).toString('base64') && !a.missing.length && /"b":"\d{4}/.test(a.text));
+  check('notes left out when the link was made without them', !/ملاحظة للعائلة/.test((await SH.sharePayload(one, { ...cfg, notes: false }, photos)).text));
+  eq('a photo this device does not have yet is reported (its copy waits for it)', (await SH.sharePayload(one, cfg, () => Promise.resolve(null))).missing, ['photo1234']);
+
+  // encrypted with the link's key
+  const key = SH.newShareKey();
+  check('a link key: 256 random bits in 43 characters', /^[A-Za-z0-9_-]{43}$/.test(key) && SH.unb64url(key).length === 32 && key !== SH.newShareKey());
+  const sealed = await SH.sealShare(key, a.text);
+  check('the same family gives the very same file (devices never replace each other\'s copy)', Buffer.from(sealed).equals(Buffer.from(await SH.sealShare(key, a.text))));
+  const edited = a.text.replace('ملاحظة للعائلة', 'ملاحظة أخرى');
+  check('…and a change gives another file, with another IV', !Buffer.from(sealed.slice(4, 16)).equals(Buffer.from((await SH.sealShare(key, edited)).slice(4, 16))));
+  check('the file shows nothing without the key', Buffer.from(sealed.slice(0, 4)).toString() === 'NSB1' && !Buffer.from(sealed).includes(Buffer.from('راشد')) && !Buffer.from(sealed).includes(Buffer.from('demom2')));
+  eq('the key opens it', await SH.openShare(key, sealed), a.text);
+  const tampered = sealed.slice(); tampered[40] ^= 1;
+  check('another key does not open it', await refused(SH.newShareKey(), sealed));
+  check('a changed byte is refused (the file cannot be altered unseen)', await refused(key, tampered));
+  check('a file that is not a copy is refused', await refused(key, new TextEncoder().encode('<html>not a copy</html>'.repeat(4))) && await refused(key, new Uint8Array(0)));
+
+  // what the view page builds from it
+  const p = SH.readPayload(await SH.openShare(key, sealed));
+  const f = p.fams.find(x => x.fid === firstFid);
+  const s = { people: f.people, unions: f.unions, root: f.root, me: f.me, settings: { style: p.cfg.style, mercy: p.cfg.mercy, kidsOrder: p.cfg.kidsOrder } };
+  const data = viewerData(s, { photo: id => (p.photos[id] ? 'data:image/jpeg;base64,' + p.photos[id] : ''), hideLiving: !p.cfg.living, notes: p.cfg.notes });
+  check('the view page builds the tree: everyone, the living with their dates, the note and the photo', Object.keys(data.people).length === Object.keys(one.people).length && data.people.demom2.ph.startsWith('data:image/jpeg;base64,') && data.people.demom2.note === 'ملاحظة للعائلة' && Object.values(data.people).some(x => x.b && !x.dead));
+  check('…and nothing of the details left out', !/50001234|m2@example|الجهراء/.test(JSON.stringify(data)) && f.people.demom2.tel === '' && f.people.demom2.res === '' && f.people.demom2.kun === '' && f.people.demom2.dead === true);
+
+  // the link
+  const conf = { repo: 'me/nasab-share', key, path: SH.SHARE_PATH, cfg };
+  const link = SH.viewLink(conf);
+  check('the link: the view page, then the repository and the key after "#"', link === SH.VIEW_URL + '#me/nasab-share/' + key);
+  eq('the view page reads the link back', SH.parseViewHash(new URL(link).hash), { repo: 'me/nasab-share', key, fam: -1 });
+  eq('…with a family chosen', SH.parseViewHash(`#me/nasab-share/${key}/1`).fam, 1);
+  check('a cut or altered link is refused', [`#me/nasab-share/${key.slice(1)}`, '#me/nasab-share', `#../x/${key}`, `#javascript:alert(1)//${key}`, `#me/nasab-share/${key}/x`, '', `#me/a/b/${key}`, `#me/nasab-share/${key}?x=1`].every(h => SH.parseViewHash(h) === null));
+
+  // share.json (in the private repository): the repository and the key, nothing else
+  const txt = SH.shareConfigText(conf);
+  const back = SH.readShareConfig(txt);
+  check('share.json keeps the repository, the key and how the family is shown', back.repo === conf.repo && back.key === key && JSON.stringify(back.cfg) === JSON.stringify(cfg) && !/github_pat|token/.test(txt));
+  check('a broken or crafted share.json is ignored', ['nope', '{}', JSON.stringify({ v: 2, repo: 'me/x', key }), JSON.stringify({ v: 1, repo: '../x', key }), JSON.stringify({ v: 1, repo: 'me/x', key: 'short' })].every(t => SH.readShareConfig(t) === null));
+  eq('unknown settings in it fall back to the defaults', SH.readShareConfig(JSON.stringify({ v: 1, repo: 'me/x', key, cfg: { lang: 'xx', cal: 'h', style: '<b>', living: false } })).cfg, { lang: 'ar', digits: 'latn', cal: 'h', style: 'bin', kidsOrder: 'old', mercy: false, both: true, living: false, notes: true });
+
+  // the public repository: written only when the copy changed
+  const pub = fakeGitHub({ name: 'nasab-share', isPrivate: false });
+  const sh = github({ repo: pub.full, token: pub.token, fetchFn: pub.fetch });
+  await sh.info();
+  const pconf = { ...conf, repo: pub.full };
+  let r = await SH.publishShare({ gh: sh, config: pconf, text: a.text });
+  check('the first copy goes into the empty public repository', r.sent && pub.commits().length === 1 && Buffer.from(pub.readBytes(SH.SHARE_PATH)).equals(Buffer.from(sealed)));
+  r = await SH.publishShare({ gh: sh, config: pconf, text: a.text });
+  check('the same family again: nothing is written', !r.sent && pub.commits().length === 1);
+  r = await SH.publishShare({ gh: sh, config: pconf, text: edited });
+  check('a change: the copy is replaced, in one commit', r.sent && pub.commits().length === 2 && [...pub.head().files.keys()].join() === SH.SHARE_PATH);
+  // what the view page does: download with no key at all, open with the link's
+  const dl = await pub.fetch(`https://api.github.com/repos/${pub.full}/contents/${SH.SHARE_PATH}`, { headers: { Accept: 'application/vnd.github.raw' } });
+  const got = new Uint8Array(await dl.arrayBuffer());
+  check('anyone can download the copy without a key; only the link opens it', dl.ok && (await SH.openShare(key, got)) === edited && await refused(SH.newShareKey(), got));
+
+  // every linked device learns the link from share.json and makes the very same copy
+  const priv = fakeGitHub();
+  const phone = memoryDevice({ state: one, repo: priv.full, token: priv.token, fetchFn: priv.fetch, by: 'phone' });
+  const pc = memoryDevice({ state: defaultState(), repo: priv.full, token: priv.token, fetchFn: priv.fetch, by: 'computer' });
+  await phone.sync();
+  const auth = { Authorization: 'Bearer ' + priv.token };
+  const putFile = (p2, text) => { const sha = priv.head().files.get(p2); return priv.handle('PUT', `https://api.github.com/repos/${priv.full}/contents/${p2}`, auth, JSON.stringify({ message: 'share', content: Buffer.from(text).toString('base64'), ...(sha ? { sha } : {}) })); };
+  putFile(SH.SHARE_CONFIG, SH.shareConfigText(pconf));
+  await pc.sync(); await phone.sync();
+  check('every linked device learns the link from share.json', pc.meta.share && pc.meta.share.key === key && pc.meta.share.repo === pub.full && phone.meta.share && phone.meta.share.key === key);
+  const fromPc = await SH.sharePayload(pc.state, pc.meta.share.cfg, photos), fromPhone = await SH.sharePayload(phone.state, phone.meta.share.cfg, photos);
+  check('…and the phone and the computer make the very same copy', fromPc.text === fromPhone.text && fromPc.text === a.text);
+  const anon = await priv.fetch(`https://api.github.com/repos/${priv.full}/contents/${SH.SHARE_CONFIG}`);
+  check('the private repository (where the key is) answers nobody without the access key', anon.status === 404);
+  const key2 = SH.newShareKey();
+  putFile(SH.SHARE_CONFIG, SH.shareConfigText({ ...pconf, key: key2 }));
+  await phone.sync();
+  check('a new key (the link changed on another device) reaches the devices', phone.meta.share.key === key2);
+  putFile(SH.SHARE_CONFIG, 'not json');
+  await phone.sync();
+  check('a broken share.json: no link, and the sync goes on', phone.meta.share === null && Object.keys(phone.state.people).length > 40 && !!priv.read(M.familyPath(firstFid)));
+
+  // the tool: share.json in the private repository, the copy in the public one, then the link
+  const { execFileSync, execFile } = await import('node:child_process');
+  const os = await import('node:os');
+  const g = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const show = (bare, file) => execFileSync('git', ['--git-dir', bare, 'show', 'main:' + file], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nasab-share-'));
+  const dataGit = path.join(root, 'github.com/me/nasab-data.git'), shareGit = path.join(root, 'github.com/me/nasab-share.git');
+  try {
+    fs.mkdirSync(path.dirname(dataGit), { recursive: true });
+    g(root, 'init', '-q', '--bare', '-b', 'main', dataGit);
+    g(root, 'init', '-q', '--bare', '-b', 'main', shareGit);
+    // the private repository as the phone wrote it: both families and the photo
+    g(root, 'clone', '-q', 'file://' + dataGit, 'device');
+    const dev = path.join(root, 'device');
+    fs.mkdirSync(path.join(dev, 'families')); fs.mkdirSync(path.join(dev, 'photos'));
+    for (const [fid, fam] of M.familiesOf(one)) fs.writeFileSync(path.join(dev, M.familyPath(fid)), M.toText({ ...fam, gone: {} }, { by: 'phone' }));
+    fs.writeFileSync(path.join(dev, M.photoPath('photo1234')), jpeg);
+    g(dev, 'add', '.'); g(dev, '-c', 'user.name=T', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'phone'); g(dev, 'push', '-q', 'origin', 'HEAD:main');
+    g(root, 'clone', '-q', '--depth', '1', 'file://' + dataGit, 'data');
+    g(root, 'clone', '-q', 'file://' + shareGit, 'share');
+    const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
+    delete env.HTTPS_PROXY; delete env.https_proxy;
+    const tool = (...args) => new Promise(ok => execFile(process.execPath, [path.join(ROOT, 'tools/nasab-data.mjs'), path.join(root, 'data'), 'share', path.join(root, 'share'), ...args], { env, timeout: 60000 }, (e, out, err) => ok({ code: e ? e.code : 0, out: String(out), err: String(err) })));
+    const t1 = await tool();
+    const k1 = (t1.out.match(/#me\/nasab-share\/([A-Za-z0-9_-]{43})\s*$/m) || [])[1];
+    const conf1 = SH.readShareConfig(show(dataGit, SH.SHARE_CONFIG).toString());
+    const copy1 = new Uint8Array(show(shareGit, SH.SHARE_PATH));
+    check('the tool makes share.json, sends the copy and prints the link', t1.code === 0 && !!k1 && conf1 && conf1.key === k1 && conf1.repo === 'me/nasab-share', t1.out + t1.err);
+    check('…the very copy the phone would send (so neither replaces the other)', Buffer.from(copy1).equals(Buffer.from(await SH.sealShare(k1, (await SH.sharePayload(one, conf1.cfg, photos)).text))));
+    eq('the public repository holds the encrypted copy and nothing else', g(root, '--git-dir', shareGit, 'ls-tree', '--name-only', 'main').trim(), SH.SHARE_PATH);
+    const t2 = await tool();
+    check('run again with nothing changed: no new commit', t2.code === 0 && /tree\.bin: unchanged/.test(t2.out) && t2.out.includes(k1), t2.out + t2.err);
+    const t3 = await tool('--new');
+    const k3 = (t3.out.match(/#me\/nasab-share\/([A-Za-z0-9_-]{43})\s*$/m) || [])[1];
+    const copy3 = new Uint8Array(show(shareGit, SH.SHARE_PATH));
+    check('--new: a new key; the old link no longer opens the copy, the new one does', t3.code === 0 && k3 && k3 !== k1 && await refused(k1, copy3) && SH.readPayload(await SH.openShare(k3, copy3)).fams.length === 2, t3.out + t3.err);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 /* ---------------- Claude edits the family with the tool (one more device) ---------------- */

@@ -39,7 +39,8 @@ self.addEventListener('fetch', e => {
       try {
         return await Promise.race([net, new Promise((_, no) => setTimeout(() => no(new Error('slow')), 4000))]);
       } catch (err) {
-        return (await fromCache('./index.html')) || net;
+        // (the view page for relatives falls back to its own copy, never to the app)
+        return (url.pathname.endsWith('/view.html') && await fromCache('./view.html')) || (await fromCache('./index.html')) || net;
       }
     })());
     return;

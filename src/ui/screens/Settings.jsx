@@ -139,17 +139,17 @@ export function AboutScreen() {
         <p style="font-family:var(--ruqaa);font-size:44px;margin:4px 0 0;text-align:center">{t('app_name')}</p>
         <p class="lead" style="text-align:center">{t('tagline')}</p>
         {ar ? <>
-          <p>نَسَب يحفظ شجرة عائلتك على جهازك: لا حساب ولا خادم ولا إعلانات ولا تتبّع. ولا تغادر بياناتك جهازك إلا في ملف تصدّره أنت، أو إن ربطته بمستودعك الخاص على GitHub (الإعدادات ← الربط بين الأجهزة)، فلا تذهب حينها إلا إلى ذلك المستودع: التطبيق لا يستطيع الاتصال بأي عنوان غيره.</p>
+          <p>نَسَب يحفظ شجرة عائلتك على جهازك: لا حساب ولا خادم ولا إعلانات ولا تتبّع. ولا تغادر بياناتك جهازك إلا في ملف تصدّره أنت، أو إن ربطته بمستودعك الخاص على GitHub (الإعدادات ← الربط بين الأجهزة)، فلا تذهب حينها إلا إلى ذلك المستودع، ونسخةً مشفّرة إلى مستودعك العام إن أنشأت رابط المشاهدة: التطبيق لا يستطيع الاتصال بأي عنوان غير GitHub.</p>
           <p>احفظ نسخة إكسل احتياطية بين حين وآخر في درايف أو أي مكان، فهي تحفظ كل شيء ومعها الصور، وتسترجعها على هاتف جديد. ويمكنك كتابة الشجرة أو تصحيحها في إكسل نفسه ثم استرجاعها.</p>
           <p>التاريخ الهجري بتقويم أم القرى. وصلة القرابة تُحسب من أقرب جدٍّ مشترك، وتظهر كل صلات القرابة إن تزوّج الأقارب.</p>
           <h3>الخطوط والمكتبات</h3>
-          <p class="small">الخطوط Noto Naskh Arabic وReadex Pro وAref Ruqaa وAmiri وReem Kufi (برخصة SIL Open Font License). والمكتبات Preact وpdf-lib وfontkit وbidi-js وExcelJS (MIT) وd3 (ISC). نصوص الرخص في مجلدي fonts وvendor.</p>
+          <p class="small">الخطوط Noto Naskh Arabic وReadex Pro وAref Ruqaa وAmiri وReem Kufi (برخصة SIL Open Font License). والمكتبات Preact وpdf-lib وfontkit وbidi-js وExcelJS وqrcode-generator (MIT) وd3 (ISC) وjsQR (Apache 2.0). نصوص الرخص في مجلدي fonts وvendor.</p>
         </> : <>
-          <p>Nasab keeps your family tree on your device: no account, no server, no ads, no tracking. Your data leaves the device only in files you export, or — if you link it to your own private GitHub repository (Settings → Sync between devices) — to that repository alone: the app cannot connect to any other address.</p>
+          <p>Nasab keeps your family tree on your device: no account, no server, no ads, no tracking. Your data leaves the device only in files you export, or — if you link it to your own private GitHub repository (Settings → Sync between devices) — to that repository, and an encrypted copy to your public one if you make the view link: the app cannot connect to any address but GitHub.</p>
           <p>Save an Excel backup now and then (to Drive or anywhere): it keeps everything, photos included, and restores on a new phone. You can also write or correct the tree in Excel and restore it.</p>
           <p>Hijri dates use the Umm al-Qura calendar. Relations are found through the nearest common ancestor; when relatives married, every relation is shown.</p>
           <h3>Fonts and libraries</h3>
-          <p class="small">Noto Naskh Arabic, Readex Pro, Aref Ruqaa, Amiri and Reem Kufi fonts (SIL Open Font License); Preact, pdf-lib, fontkit, bidi-js, ExcelJS (MIT) and d3 (ISC). License texts are in the fonts and vendor folders.</p>
+          <p class="small">Noto Naskh Arabic, Readex Pro, Aref Ruqaa, Amiri and Reem Kufi fonts (SIL Open Font License); Preact, pdf-lib, fontkit, bidi-js, ExcelJS, qrcode-generator (MIT), d3 (ISC) and jsQR (Apache 2.0). License texts are in the fonts and vendor folders.</p>
         </>}
       </div>
     </div>

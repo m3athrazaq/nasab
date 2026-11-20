@@ -4,6 +4,7 @@
 //   vendor/exceljs.min.js  Excel engine, loaded only for backups (ExcelJS)
 //   vendor/viewer.js    the viewer put inside a shared HTML file
 //   vendor/qr.js        QR codes (drawing and reading), loaded only when linking another device
+//   view.html, vendor/share.js  the page a view link opens (the family, encrypted, from a public repository)
 //   index.html          page shell with the app's integrity hash (SRI) and styles
 //   sw.js               offline cache with the list of every file and a version derived from their hashes
 //   fonts/              the typefaces (woff2 for the screen, ttf for vector text in PDFs and SVGs)
@@ -15,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import * as esbuild from 'esbuild';
 
 const require = createRequire(import.meta.url);
@@ -100,6 +102,25 @@ const viewerBuild = await esbuild.build({
   define: { 'process.env.NODE_ENV': '"production"', __APP_VERSION__: JSON.stringify(APP_VERSION) }
 });
 put('vendor/viewer.js', viewerBuild.outputFiles[0].contents);
+
+/* ---- the view page for relatives: view.html#owner/repo/key opens the encrypted copy of the family ---- */
+const shareBuild = await esbuild.build({
+  entryPoints: [path.join(ROOT, 'src/viewer/share-entry.js')],
+  bundle: true, minify: true, format: 'iife', platform: 'browser', target: ['es2020', 'safari15', 'chrome90'], write: false, legalComments: 'none', charset: 'utf8',
+  define: { 'process.env.NODE_ENV': '"production"', __APP_VERSION__: JSON.stringify(APP_VERSION), __ALLOW_FRAME__: 'false', __VIEWER_SRI__: sriOf('vendor/viewer.js'), __VIEWER_V__: JSON.stringify(short(viewerBuild.outputFiles[0].contents)) }
+});
+const shareJs = shareBuild.outputFiles[0].contents;
+put('vendor/share.js', shareJs);
+{
+  const { TEMPLATE } = await import(pathToFileURL(path.join(ROOT, 'src/export/viewer-template.js')).href);
+  const csp = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'";
+  const view = TEMPLATE.replace('%LANG%', 'ar').replace('%DIR%', 'rtl').replace('%TITLE%', 'شجرة العائلة')
+    .replace('<meta charset="utf-8">', `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">`)
+    .replace('</style>', '#msg{position:fixed;inset:0;z-index:9;display:grid;place-content:center;gap:6px;padding:24px;text-align:center;background:var(--paper);color:var(--ink2);font-size:17px;line-height:1.8}#msg[hidden]{display:none}#msg p{margin:0;max-width:30em}#msg p[lang=en]{font-size:14px;color:var(--ink3)}#msg.busy p{animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}@media (prefers-reduced-motion:reduce){#msg.busy p{animation:none}}#fams{height:42px;border-radius:12px;border:1.5px solid var(--rule);background:var(--sheet);color:var(--ink);padding:0 10px;font-size:15px;max-width:100%}</style>')
+    .replace('<script>/*DATA*/</script>\n<script>/*VIEWER*/</script>', `<div id="msg" hidden></div>\n<script src="vendor/share.js?v=${short(shareJs)}"${PREVIEW ? '' : ` integrity="${sri(shareJs)}"`}></script>`);
+  if (!view.includes('vendor/share.js')) throw new Error('view.html: the template changed');
+  put('view.html', view);
+}
 
 /* ---- app ---- */
 const appBuild = await esbuild.build({
