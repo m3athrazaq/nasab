@@ -209,6 +209,8 @@ export function buildTable(ix, s, opts, env) {
     const out = [{ t: 'rect', x, y, w, h: rowH, fill, stroke: colors ? 'none' : '#A8A8A8', sw: colors ? 0 : 0.5 * k }];
     const nm = fitText(measure, n.label, F.name, nameSize, w - 2 * N.pad * k * 0.6);
     out.push({ t: 'text', x: x + w / 2, y: y + rowH * 0.5 + nm.size * 0.36, s: nm.s, font: F.name, size: nm.size, fill: ink, w: nm.w });
+    // a daughter's child (under the mother): faded, like a watermark
+    if (n.faint) for (const it of out) it.op = 0.4;
     return out;
   };
 

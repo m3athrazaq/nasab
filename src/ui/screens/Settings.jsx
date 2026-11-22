@@ -72,6 +72,7 @@ export function SettingsScreen() {
           <h2>{t('kids_order')}</h2>
           <Seg value={st.kidsOrder} onChange={v => setSettings({ kidsOrder: v })} options={KIDS_ORDER.map(k => [k, t('kids_' + k)])} label={t('kids_order')} />
           <p class="hint">{t('kids_order_hint')}</p>
+          <div class="list" style="margin-top:10px"><Toggle checked={st.motherKids} onChange={v => setSettings({ motherKids: v })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} /></div>
         </div>
         <div class="section">
           <h2>{t('s_me')}</h2>

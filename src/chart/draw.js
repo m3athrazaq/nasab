@@ -63,6 +63,9 @@ function seal(items, th, cx, cy, R, inf, col, { dup = false, photos = true, meas
   }
 }
 
+/** how strongly daughters' children (shown under their mothers) are drawn: a watermark */
+export const FAINT = 0.36, FAINT_LINK = 0.3;
+
 /**
  * o: { info(id) → { name, initial, years, dead, g, photo, spouses }, measure(font, text, size),
  *      photos, dates, spouses, colors, bands, genLabel(n), me, selected, thread: Set of node keys,
@@ -128,7 +131,7 @@ export function drawDescendants(L, th, o) {
     const on = thread.has(l.to) && thread.has(l.from);
     const base = L.mode === 'r' ? mix(branchColor(th, to.branch, o.colors), mix(th.line, th.ink, 0.55), o.colors ? 0.45 : 0) : (o.colors ? mix(branchColor(th, to.branch, true), th.line, 0.38) : th.line);
     const sw = (l.w || th.lineW) * (on ? (L.mode === 'r' ? 1.25 : 1.9) : 1);
-    (on ? lit : plain).push({ t: 'path', d: l.d, fill: 'none', stroke: on ? th.thread : base, sw, cap: 'round', join: 'round' });
+    (on ? lit : plain).push({ t: 'path', d: l.d, fill: 'none', stroke: on ? th.thread : base, sw, cap: 'round', join: 'round', op: l.faint && !on ? FAINT_LINK : undefined });
   }
   items.push(...plain, ...lit);
 
@@ -172,7 +175,7 @@ export function drawDescendants(L, th, o) {
       if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
     } else if (L.mode === 'v') {
       const R = n.depth === 0 ? M.R * 1.12 : M.R;
-      seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos, measure, ring });
+      seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos && !n.faint, measure, ring });
       let y = n.y + M.R + M.nameGap - 1;
       const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize, M.w - 4);
       g.items.push({ t: 'text', x: n.x, y, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w });
@@ -200,7 +203,7 @@ export function drawDescendants(L, th, o) {
       } else {
         g.items.push({ t: 'rect', x: x0, y: y0, w, h, r: female ? h / 2 : 10, fill: th.pill, stroke: mix(col, th.line, 0.55), sw: 1, dash: n.dup ? [3, 2.5] : null });
         const sx = L.rtl ? x0 + w - h / 2 : x0 + h / 2;
-        seal(g.items, th, sx, n.y, M.R, inf, col, { dup: n.dup, photos: o.photos, measure });
+        seal(g.items, th, sx, n.y, M.R, inf, col, { dup: n.dup, photos: o.photos && !n.faint, measure });
         tx0 = L.rtl ? x0 + 8 : sx + M.R + 6; tx1 = L.rtl ? sx - M.R - 6 : x0 + w - 8;
       }
       const cx = (tx0 + tx1) / 2, avail = tx1 - tx0;
@@ -243,7 +246,7 @@ export function drawDescendants(L, th, o) {
       // canopy
       const root = n.depth === 0;
       const R = root ? M.R * 1.9 : M.R;
-      seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos, measure, ring });
+      seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos && !n.faint, measure, ring });
       if (root) {
         g.items.push(...trunkPlaque(inf.name, n.x));
         g.hit = { x: n.x - Math.max(R, 60), y: n.y - R - 6, w: 2 * Math.max(R, 60), h: R + M.trunk * 0.5 + 30 };
@@ -262,6 +265,9 @@ export function drawDescendants(L, th, o) {
       }
       if (n.hidden) badge(g.items, th, measure, n.x + Math.cos(rad(n.ang)) * (M.R + 14), n.y + Math.sin(rad(n.ang)) * (M.R + 14), '+', col);
     }
+    // a daughter's child (shown under the mother): like a watermark, unless picked
+    if (n.faint && o.selected !== n.id) for (const it of g.items) it.op = (it.op == null ? 1 : it.op) * FAINT;
+    if (n.faint) g.faint = true;
     items.push(g);
   }
   if (L.mode === 'r' && L.virtual && o.trunkLabel) items.push(...trunkPlaque(o.trunkLabel, 0));

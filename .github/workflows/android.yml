@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '1.5.0'
+  APP_VERSION: '1.6.0'
   BUILD_NUMBER: ${{ github.run_number }}
   CERT_SHA256: '5B:50:0B:41:06:0B:1D:7F:88:95:3A:F6:1A:A6:71:6A:4F:28:02:3C:2F:15:3F:00:FB:D3:44:8A:1C:12:7E:6E'
 

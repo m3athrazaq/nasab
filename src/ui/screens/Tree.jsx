@@ -73,8 +73,8 @@ function TreeCanvas() {
       const known = Math.max(0, ...ix.ancestors(fp, 8).values());
       return layoutFan(ix, fp, { gens: Math.min(6, Math.max(3, known + 1)), rtl });
     }
-    return layoutDescendants(ix, root, { mode: v.mode, dKids: v.dKids, women: v.women, spouses: v.spouses && v.women, dates: v.dates, rtl, inside: v.inside, collapsed: new Set(v.collapsed) });
-  }, [ix, root, v.mode, v.dKids, v.women, v.spouses, v.dates, v.inside, collapsed, rtl, fp, fontsReady.value]);
+    return layoutDescendants(ix, root, { mode: v.mode, dKids: s.settings.motherKids, women: v.women, spouses: v.spouses && v.women, dates: v.dates, rtl, inside: v.inside, collapsed: new Set(v.collapsed) });
+  }, [ix, root, v.mode, s.settings.motherKids, v.women, v.spouses, v.dates, v.inside, collapsed, rtl, fp, fontsReady.value]);
   const info = useMemo(() => makeInfo(ix, s, {}), [ix, s.settings, lang.value]);
   const thread = useMemo(() => (L && sel && v.mode !== 'f' ? threadKeys(L, sel) : new Set()), [L, sel, v.mode]);
   const scene = useMemo(() => {
@@ -192,7 +192,7 @@ export const KIDS_ORDER = ['old', 'young', 'manual'];
 
 export function TreeScreen() {
   const s = state.value, ix = IX.value, root = ROOT.value;
-  const gens = useMemo(() => generations(ix, root, { daughtersKids: s.view.dKids, women: s.view.women }), [ix, root, s.view.dKids, s.view.women]);
+  const gens = useMemo(() => generations(ix, root, { daughtersKids: s.settings.motherKids, women: s.view.women }), [ix, root, s.settings.motherKids, s.view.women]);
   if (!root) {
     return (
       <div class="screen"><div class="wrap" style="padding-top:80px;text-align:center">
@@ -296,7 +296,7 @@ export function ViewSheet() {
         <Toggle checked={v.dates} onChange={x => setView({ dates: x })} label={t('opt_dates')} />
         <Toggle checked={v.women} onChange={x => setView({ women: x })} label={t('opt_women')} sub={t('opt_women_sub')} />
         {v.women && <Toggle checked={v.spouses} onChange={x => setView({ spouses: x })} label={t('opt_spouses')} sub={t('opt_spouses_sub')} />}
-        {v.women && <Toggle checked={v.dKids} onChange={x => setView({ dKids: x })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
+        {v.women && <Toggle checked={st.motherKids} onChange={x => setSettings({ motherKids: x })} label={t('opt_dkids')} sub={t('opt_dkids_sub')} />}
         <Toggle checked={v.colors} onChange={x => setView({ colors: x })} label={t('opt_colors')} />
         <Toggle checked={v.bands} onChange={x => setView({ bands: x })} label={t('opt_bands')} />
       </div>

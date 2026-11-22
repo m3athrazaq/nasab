@@ -178,6 +178,24 @@ let browser;
     await settle(page);
     s = await stored(page);
     check(!!s.people.demofy5, '…and Undo brings him back');
+    // daughters' children: under their fathers only at first; a choice in Settings shows them under their
+    // mothers too, faded like a watermark (here the children of cousins, drawn in full under the father)
+    const faintMarks = () => page.evaluate(() => document.querySelectorAll('svg g.node [opacity]').length);
+    const offFaint = await faintMarks();
+    await go(page, 'settings');
+    const mk = page.locator('.toggle', { hasText: AR.opt_dkids });
+    s = await stored(page);
+    check(s.settings.motherKids === false && await mk.count() === 1, 'daughters\' children under their mothers: a choice in Settings, off at first');
+    await mk.click();
+    await go(page, 'tree');
+    await page.waitForTimeout(800);
+    const onFaint = await faintMarks();
+    s = await stored(page);
+    check(offFaint === 0 && onFaint > 0 && s.settings.motherKids === true, `…turned on, they show under their mothers, faded (${onFaint} faint marks)`);
+    await go(page, 'settings');
+    await mk.click();
+    await go(page, 'tree');
+    await page.waitForTimeout(500);
     // women hidden
     await page.locator('.tree-top .iconbtn').nth(1).click();
     await page.locator('.sheet .toggle', { hasText: AR.opt_women }).click();

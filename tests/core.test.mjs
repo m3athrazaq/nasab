@@ -359,7 +359,7 @@ await section('one person\'s children order', async () => {
 });
 
 /* ---------------- what the tree shows: women, and a lower first generation ---------------- */
-await section('tree filters', () => {
+await section('tree filters', async () => {
   const full = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true });
   const men = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true, women: false });
   check('without women no woman is drawn', men.nodes.every(n => ix.P[n.id].g !== 'f' || n.depth === 0) && full.nodes.some(n => ix.P[n.id].g === 'f'));
@@ -381,6 +381,36 @@ await section('tree filters', () => {
   const deep = layoutDescendants(ix, 'demor1', { mode: 'v', dKids: true, fromGen: 3, maxGen: 2 });
   check('from generation 3, two generations', Math.max(...deep.nodes.map(n => g.get(n.id))) === 4);
   check('a generation below the last gives nothing', layoutDescendants(ix, 'demor1', { mode: 'v', fromGen: 9 }).nodes.length === 0);
+  // daughters' children: under their fathers only, unless chosen in Settings; then under their mothers
+  // too, faint like a watermark (and someone of the father's line stays in full there)
+  const byDefault = layoutDescendants(ix, 'demor1', { mode: 'v' });
+  const parentOf = (L, n) => L.nodes.find(m => m.key === n.parent);
+  check('by default children sit under their fathers only', byDefault.nodes.every(n => !n.faint && (n.depth === 0 || ix.P[parentOf(byDefault, n).id].g !== 'f')));
+  const cousins = full.nodes.filter(n => n.faint);
+  check('cousins married: their children in full under the father, under the mother only as a faint reference', cousins.length === 3 && cousins.every(n => n.dup && full.nodes.some(m => m.id === n.id && !m.dup && !m.faint && ix.P[parentOf(full, m).id].g === 'm')));
+  eq('the setting is off on a new device, and kept when chosen', [defaultState().settings.motherKids, sanitizeState({ settings: { motherKids: true } }).settings.motherKids, 'dKids' in sanitizeState({ view: { dKids: true } }).view], [false, true, false]);
+  // a daughter married outside the family, her children and a grandchild
+  state.value = sanitizeState({ ...demoState(), settings: { onboarded: true } });
+  const ix0 = buildIndex(state.value);
+  const daughter = Object.keys(ix0.P).find(id => ix0.P[id].g === 'f' && ix0.P[id].pu && !ix0.unions(id).length && g.get(id) === 3);
+  const { unionId } = A.addSpouse(daughter, { n: 'سالم', g: 'm', fam: 'العمر' });
+  const [k1] = A.addChildren(daughter, [{ n: 'نورة', g: 'f' }, { n: 'بدر', g: 'm' }], { unionId });
+  const bdr = Object.keys(state.value.people).find(id => state.value.people[id].n === 'بدر' && state.value.people[id].pu === unionId);
+  const gk = A.addChild(bdr, { n: 'سعد', g: 'm' });
+  const ixo = buildIndex(state.value);
+  const off = layoutDescendants(ixo, 'demor1', { mode: 'v' }), on = layoutDescendants(ixo, 'demor1', { mode: 'v', dKids: true });
+  check('off: her children are not in the tree', ![k1, bdr, gk].some(id => off.nodes.some(n => n.id === id)));
+  check('on: they are under her, faint, and so is her grandson', [k1, bdr, gk].every(id => on.nodes.some(n => n.id === id && n.faint && !n.dup)) && on.nodes.filter(n => !n.faint).length === off.nodes.length);
+  check('…and the lines to them are faint too', [k1, bdr, gk].every(id => on.links.some(l => l.to === id && l.faint)) && on.links.filter(l => l.faint).length === on.nodes.filter(n => n.faint).length);
+  const { makeInfo } = await import('../src/chart/info.js');
+  const { posterTheme } = await import('../src/chart/themes.js');
+  const { drawDescendants, FAINT } = await import('../src/chart/draw.js');
+  const sc = drawDescendants(on, posterTheme('palm'), { info: makeInfo(ixo, state.value, {}), measure: (f, x, z) => String(x).length * z * 0.5, photos: true, dates: true, colors: true });
+  const faintGroups = sc.items.filter(it => it.t === 'g' && it.faint);
+  check('drawn like a watermark: everything of theirs is see-through', [k1, bdr, gk].every(id => faintGroups.some(gr => gr.id === id)) && faintGroups.length === on.nodes.filter(n => n.faint).length && faintGroups.every(gr => gr.items.length && gr.items.every(it => it.op != null && it.op <= FAINT)));
+  check('…the others as before', sc.items.filter(it => it.t === 'g' && it.key && !it.faint).every(gr => gr.items.every(it => it.op == null || it.op > FAINT)));
+  const picked = drawDescendants(on, posterTheme('palm'), { info: makeInfo(ixo, state.value, {}), measure: (f, x, z) => String(x).length * z * 0.5, selected: bdr });
+  check('a faint person picked on the screen shows in full', picked.items.find(it => it.t === 'g' && it.id === bdr).items.every(it => it.op == null || it.op > FAINT));
 });
 
 /* ---------------- more than one family ---------------- */

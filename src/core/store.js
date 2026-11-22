@@ -22,12 +22,13 @@ export function defaultSettings() {
     style: 'bin', depth: 4,               // full names: "خالد بن راشد بن …", four names
     mercy: true,                          // "رحمه الله" after the names of the deceased
     kidsOrder: 'old',                     // brothers and sisters: eldest first ('old'), youngest first, or as entered
+    motherKids: false,                    // daughters' children under their mothers too (faded); the tree follows the father's line
     onboarded: false, lock: '', lockSalt: '', lockLen: 0   // the PIN lock: salted hash and the PIN's length
   };
 }
 export function defaultView() {
   // inside: each person's name written inside his shape (else the initial in the seal and the name under it)
-  return { mode: 'v', spouses: false, dKids: false, women: true, photos: true, dates: true, colors: true, bands: true, inside: false, collapsed: [] };
+  return { mode: 'v', spouses: false, women: true, photos: true, dates: true, colors: true, bands: true, inside: false, collapsed: [] };
 }
 export function defaultState() {
   return {
@@ -93,7 +94,7 @@ export function sanitizeState(raw, nested = false) {
     lang: oneOf(s.lang, ['ar', 'en'], 'ar'), theme: oneOf(s.theme, ['auto', 'light', 'dark'], 'auto'), digits: oneOf(s.digits, ['latn', 'arab'], 'latn'),
     cal: oneOf(s.cal, ['entered', 'g', 'h'], 'entered'), both: s.both == null ? ds.both : bool(s.both),
     style: oneOf(s.style, ['bin', 'plain'], 'bin'), depth: s.depth == null ? ds.depth : int(s.depth, 0, 12, ds.depth),
-    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), kidsOrder: oneOf(s.kidsOrder, KIDS_ORDERS, ds.kidsOrder), onboarded: bool(s.onboarded),
+    mercy: s.mercy == null ? ds.mercy : bool(s.mercy), kidsOrder: oneOf(s.kidsOrder, KIDS_ORDERS, ds.kidsOrder), motherKids: bool(s.motherKids), onboarded: bool(s.onboarded),
     lock: typeof s.lock === 'string' && /^[a-f0-9]{64}$/.test(s.lock) ? s.lock : '',
     lockSalt: typeof s.lockSalt === 'string' && /^[a-f0-9]{16,64}$/.test(s.lockSalt) ? s.lockSalt : '',
     lockLen: int(s.lockLen, 4, 8, 0)
@@ -150,7 +151,7 @@ export function sanitizeState(raw, nested = false) {
   d.me = pid(raw.me); d.root = pid(raw.root);
   const v = raw.view || {};
   d.view = {
-    mode: oneOf(v.mode, VIEW_MODES, 'v'), spouses: bool(v.spouses), dKids: bool(v.dKids), women: v.women == null ? true : bool(v.women),
+    mode: oneOf(v.mode, VIEW_MODES, 'v'), spouses: bool(v.spouses), women: v.women == null ? true : bool(v.women),
     photos: v.photos == null ? true : bool(v.photos), dates: v.dates == null ? true : bool(v.dates), colors: v.colors == null ? true : bool(v.colors), bands: v.bands == null ? true : bool(v.bands), inside: bool(v.inside),
     collapsed: (Array.isArray(v.collapsed) ? v.collapsed : []).map(pid).filter(Boolean).slice(0, LIMITS.collapsed)
   };

@@ -135,7 +135,7 @@ export function PosterScreen() {
   const [o, setO] = useState(() => ({
     mode: saved.layout || (s.view.mode === 'f' ? 'f' : s.view.mode) || 'v', theme: saved.theme || 'sadu', paper: saved.paper || 'A3', orient: saved.orient || 'auto',
     head: saved.head, title: saved.title || '', sub: saved.sub, root: saved.root && ix.P[saved.root] ? saved.root : '', person: '',
-    photos: saved.photos !== false, dates: saved.dates !== false, spouses: !!saved.spouses, dKids: saved.dKids != null ? saved.dKids : s.view.dKids,
+    photos: saved.photos !== false, dates: saved.dates !== false, spouses: !!saved.spouses, dKids: saved.dKids != null ? saved.dKids : s.settings.motherKids,
     women: saved.women != null ? saved.women : s.view.women !== false, fromGen: saved.fromGen || 1,
     colors: saved.colors !== false, legend: saved.legend !== false, hideLiving: !!saved.hideLiving,
     by: saved.by || '', gpaper: saved.gpaper || 'auto', gdir: saved.gdir || 'ltr',
@@ -275,7 +275,7 @@ export function PosterScreen() {
 export function BookScreen() {
   const s = state.value, ix = IX.value, root = ROOT.value;
   const photoUrls = usePhotoUrls();
-  const [o, setO] = useState({ theme: (s.poster && s.poster.theme) || 'palm', root: '', dKids: s.view.dKids, photos: true, inside: !!(s.poster && s.poster.inside != null ? s.poster.inside : s.view.inside) });
+  const [o, setO] = useState({ theme: (s.poster && s.poster.theme) || 'palm', root: '', dKids: s.settings.motherKids, photos: true, inside: !!(s.poster && s.poster.inside != null ? s.poster.inside : s.view.inside) });
   const set = patch => setO(x => ({ ...x, ...patch }));
   const top = o.root && ix.P[o.root] ? o.root : root;
   const opts = { ...o, root: top };

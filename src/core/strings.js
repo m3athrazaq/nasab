@@ -21,7 +21,7 @@ export const AR = {
   mode_hint_v: 'الجد في الأعلى وذريته تحته جيلاً بعد جيل.', mode_hint_h: 'الجد على اليمين والأجيال تمتد يساراً؛ مريح للتصفح على الجوال.',
   mode_hint_r: 'شجرة حقيقية: جذع وأغصان، وكل جيل حلقة أعلى من التي قبله.', mode_hint_f: 'مروحة آباء الشخص وأجداده من جهتي الأب والأم.',
   opt_photos: 'الصور', opt_dates: 'السنوات', opt_spouses: 'الزوجات وأسماء الأمهات', opt_spouses_sub: 'اسم الزوجة تحت اسم الزوج، واسم الأم فوق أبنائها إن تعددت الزوجات',
-  opt_dkids: 'أبناء البنات', opt_dkids_sub: 'الشجرة تتبع نسب الأب؛ فعّله لتظهر ذرية البنات أيضاً', opt_colors: 'لون لكل فرع', opt_bands: 'أشرطة الأجيال', opt_legend: 'دليل الألوان والأشكال',
+  opt_dkids: 'أبناء البنات تحت أمهاتهم', opt_dkids_sub: 'الأبناء تحت آبائهم فقط، فالشجرة تتبع نسب الأب. فعّله لتظهر ذرية البنات تحت أمهاتهن باهتةً كالعلامة المائية', opt_colors: 'لون لكل فرع', opt_bands: 'أشرطة الأجيال', opt_legend: 'دليل الألوان والأشكال',
   expand_all: 'افتح كل الفروع المطوية', gen_n: 'الجيل {n}', gen_n_long: 'الجيل {n}', gen_none: 'خارج الشجرة (أصهار وآخرون)', from_mother: 'من {name}',
 
   /* person card & sheets */
@@ -206,7 +206,7 @@ export const EN = {
   mode_hint_v: 'The ancestor at the top, his descendants below, generation by generation.', mode_hint_h: 'The ancestor on one side, generations spreading across; easy to scroll on a phone.',
   mode_hint_r: 'A real tree: trunk and branches, each generation a ring above the last.', mode_hint_f: 'A fan of a person’s parents and grandparents on both sides.',
   opt_photos: 'Photos', opt_dates: 'Years', opt_spouses: 'Wives and mothers’ names', opt_spouses_sub: 'The wife under her husband, the mother over her children when a man had several wives',
-  opt_dkids: 'Daughters’ children', opt_dkids_sub: 'The tree follows the father’s line; turn on to show daughters’ descendants too', opt_colors: 'A colour for each branch', opt_bands: 'Generation bands', opt_legend: 'Legend',
+  opt_dkids: 'Daughters’ children under their mothers', opt_dkids_sub: 'Children sit under their fathers only: the tree follows the father’s line. Turn on to show daughters’ descendants under their mothers, faded like a watermark', opt_colors: 'A colour for each branch', opt_bands: 'Generation bands', opt_legend: 'Legend',
   expand_all: 'Open all folded branches', gen_n: 'Gen. {n}', gen_n_long: 'Generation {n}', gen_none: 'Outside the tree (in-laws and others)', from_mother: 'by {name}',
 
   act_profile: 'Profile', act_children: 'Children', act_wife: 'Wife', act_husband: 'Husband', act_father: 'Father', act_mother: 'Mother', act_siblings: 'Siblings',

@@ -16,7 +16,9 @@ export const METRICS = {
 
 /**
  * the descendants of root as a nested structure, following the view's rules:
- * - a daughter's children show only with dKids (the tree follows the father's line by default)
+ * - a daughter's children show only with dKids (the tree follows the father's line by default); they and
+ *   their descendants are then faint ({ faint: true }, drawn like a watermark), and someone who is also on
+ *   the father's line (cousins married) is drawn there in full and under the mother as a reference
  * - without women (women: false) daughters are left out, and a man's children by all his wives make one
  *   row in age order
  * - collapsed people hide their descendants (the count is kept for a "+N" badge)
@@ -34,6 +36,16 @@ export function descendantData(ix, root, { dKids = false, women = true, collapse
     return ix.orderedChildren(id).filter(shown).map(c => [c, ix.P[c].pu]);
   };
   const follows = (id, depth) => depth === 0 || ix.P[id].g !== 'f' || dKids;
+  // with daughters' children shown: everyone reached through fathers alone (they belong there)
+  const fatherLine = new Set([root]);
+  if (dKids) {
+    const stack = [[root, 0]];
+    while (stack.length) {
+      const [x, d] = stack.pop();
+      if (d > 0 && ix.P[x].g === 'f') continue;
+      for (const [c] of kidsOf(x)) if (!fatherLine.has(c)) { fatherLine.add(c); stack.push([c, d + 1]); }
+    }
+  }
   // how many are below someone, by the same rules (for the "+N" of a folded branch)
   const countBelow = id => {
     const seen = new Set([id]); const stack = [[id, 0]]; let n = 0;
@@ -44,15 +56,17 @@ export function descendantData(ix, root, { dKids = false, women = true, collapse
     }
     return n;
   };
-  function make(id, depth, branch, union) {
+  function make(id, depth, branch, union, faint = false) {
     const node = { id, depth, branch, union, children: [] };
-    if (placed.has(id)) { node.dup = true; return node; }
+    if (faint) node.faint = true;
+    if (placed.has(id) || (faint && fatherLine.has(id))) { node.dup = true; return node; }
     placed.add(id);
     const follow = follows(id, depth);
     let kids = follow ? kidsOf(id) : [];
     if (kids.length && ((maxGen && depth + 1 >= skip + maxGen) || (depth >= skip && collapsed.has(id)))) { node.hidden = countBelow(id); kids = []; }
     node.hiddenKids = !follow ? ix.children(id).filter(shown).length : 0;
-    node.children = kids.map(([c, u], i) => make(c, depth + 1, depth === 0 ? i : branch, u));
+    const viaMother = faint || (depth > 0 && ix.P[id].g === 'f');
+    node.children = kids.map(([c, u], i) => make(c, depth + 1, depth === 0 ? i : branch, u, viaMother));
     return node;
   }
   const full = make(root, 0, -1, '');
@@ -110,7 +124,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       const key = d.virtual ? '' : d.dup ? d.id + '#' + (k++) : d.id;
       d.key = key;
       if (d.virtual) return;
-      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null });
+      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, faint: !!d.faint, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null });
     });
     const r = M.corner || 10;
     h.each(n => {
@@ -127,7 +141,7 @@ export function layoutDescendants(ix, root, opts = {}) {
         const xm = x1 + dir * Math.max(10, Math.abs(x2 - x1) * 0.45);
         d = elbowH(x1, y1, x2, y2, xm, r);
       }
-      links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union });
+      links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union, faint: !!b.data.faint });
     });
     // mother groups: where a father's children come from more than one wife
     const groups = [];
@@ -167,7 +181,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       if (d.virtual) return; // the trunk stands where the top would be
       // reading direction of the name: along the radius, flipped on the left half so it is never upside down
       let ang = Math.atan2(n.py, n.px) * 180 / Math.PI;
-      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null, ang });
+      nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, faint: !!d.faint, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null, ang });
     });
     h.each(n => {
       if (!n.parent) return;
@@ -180,7 +194,7 @@ export function layoutDescendants(ix, root, opts = {}) {
       const c2x = Math.cos(ang) * (ra + (rb - ra) * 0.45), c2y = Math.sin(ang) * (ra + (rb - ra) * 0.45);
       const d = `M${f(a.px)} ${f(a.py)}C${f(c1x)} ${f(c1y)} ${f(c2x)} ${f(c2y)} ${f(b.px)} ${f(b.py)}`;
       // (from the invisible top: the boughs leave the top of the trunk)
-      links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union, w: Math.max(1.2, 7 - b.depth * 1.3) });
+      links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union, w: Math.max(1.2, 7 - b.depth * 1.3), faint: !!b.data.faint });
     });
     // bounds: every seal and the end of its name along the branch, the trunk and the ground
     let x0 = -170, x1 = 170, y0 = -M.R * 2.2, y1 = M.trunk + 30 + 40;

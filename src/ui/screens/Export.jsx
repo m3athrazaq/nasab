@@ -135,7 +135,7 @@ function HtmlSheet({ onClose }) {
   const [o, setO] = useState({ photos: true, hideLiving: true, notes: true, women: state.value.view.women !== false, inside: !!state.value.view.inside });
   const make = () => runExport(t('making_file'), async () => {
     const { exportHtml } = await import('../../export/html.js');
-    const { blob } = await exportHtml(state.value, { ...o, dKids: state.value.view.dKids });
+    const { blob } = await exportHtml(state.value, { ...o, dKids: state.value.settings.motherKids });
     onClose();
     await deliverFile(blob, fileBase() + '.html', { title: t('ex_html') });
   });
