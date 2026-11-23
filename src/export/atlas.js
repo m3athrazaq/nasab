@@ -2,7 +2,7 @@
 // of the tree goes on the first page; a branch that would make a page's names too small goes on a page
 // of its own (and its own big branches on pages after it), and where it was, a tag gives its page.
 // The same plan lays out the tree pages of the family book.
-import { descendantData, layoutDescendants } from '../chart/layout.js';
+import { descendantData, layoutDescendants, METRICS } from '../chart/layout.js';
 import { drawDescendants, fitText } from '../chart/draw.js';
 import { posterTheme, innerTheme } from '../chart/themes.js';
 import { makeInfo } from '../chart/info.js';
@@ -50,7 +50,8 @@ export function atlasPlan(ix, s, opts = {}) {
   const titles = defaultTitles(ix, root);
   const head = opts.head != null ? opts.head : titles.head;
   const sub = opts.sub != null ? opts.sub : titles.sub;
-  const metrics = mode === 'v' ? { w: 104, ws: 150 } : mode === 'h' ? { w: inside ? 160 : 180 } : {};
+  // (top-down: a little more room between generations, for the page tags under the cards)
+  const metrics = mode === 'v' ? { w: 104, ws: 150, level: METRICS[inside ? 'vi' : 'v'].level + 22 + (spouses ? 15 : 0) } : mode === 'h' ? { w: inside ? 160 : 180 } : {};
 
   // the whole tree, by person (someone drawn twice is found at his full place), and who is above whom
   const nodeOf = new Map(), up = new Map();

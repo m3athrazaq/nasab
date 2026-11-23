@@ -191,7 +191,8 @@ export function drawDescendants(L, th, o) {
         g.items.push({ t: 'text', x: n.x, y: n.y + ch / 2 + 13, s: sp.s, font: th.fonts.years, size: sp.size, fill: th.ink3, w: sp.w });
       }
       g.hit = { x: n.x - M.w / 2, y: y0 - 4, w: M.w, h: L.box.top + L.box.bottom + 8 };
-      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, tagOf(n) || plus(n), col);
+      // (a page tag stands a little lower, clear of a wife's name)
+      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + (tagOf(n) ? 9 : 4), tagOf(n) || plus(n), col);
     } else if (L.mode === 'v') {
       const R = n.depth === 0 ? M.R * 1.12 : M.R;
       seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos && !n.faint, measure, ring });
@@ -209,7 +210,8 @@ export function drawDescendants(L, th, o) {
         g.items.push({ t: 'text', x: n.x, y, s: sp.s, font: th.fonts.years, size: sp.size, fill: th.ink3, w: sp.w });
       }
       g.hit = { x: n.x - M.w / 2, y: n.y - M.R - 6, w: M.w, h: M.R + L.box.bottom + 6 };
-      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, tagOf(n) || plus(n), col);
+      // (a page tag stands a little lower, clear of a wife's name)
+      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + (tagOf(n) ? 9 : 4), tagOf(n) || plus(n), col);
     } else if (L.mode === 'h') {
       const w = M.w, h = M.h, x0 = n.x - w / 2, y0 = n.y - h / 2;
       const female = inf.g === 'f';
