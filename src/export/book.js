@@ -1,8 +1,9 @@
 // «كتاب العائلة»: a printable book (A4) — cover, introduction, the tree and each branch on its own
 // page, a page of life details for everyone, and an index of names with page numbers.
-import { posterTheme, branchColor, mix, hexToRgb, SCREEN } from '../chart/themes.js';
+import { posterTheme, branchColor, mix, innerTheme } from '../chart/themes.js';
+export { innerTheme };
 import { frameItems, dividerItems, star8 } from '../chart/ornaments.js';
-import { layoutDescendants } from '../chart/layout.js';
+import { atlasPlan, pageTag } from './atlas.js';
 import { drawDescendants, fitText } from '../chart/draw.js';
 import { makeInfo } from '../chart/info.js';
 import { pageWriter } from './typeset.js';
@@ -11,17 +12,6 @@ import { t, count, num, fmtDateParts, lang, fmtAge, ageOf, dig, byName } from '.
 import { lineageText, mercy } from '../core/names.js';
 import { generations } from '../core/model.js';
 import { makeD } from '../core/dates.js';
-
-const lum = hex => { const [r, g, b] = hexToRgb(hex); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
-/** inner pages are always light (a whole book on dark paper would drink ink); the cover keeps the look */
-export function innerTheme(th) {
-  if (lum(th.bg) > 0.5) return th;
-  return {
-    ...th, bg: '#FAF7F0', paper: '#FAF7F0', ink: '#1F1A16', ink2: '#5B5148', ink3: '#8E847A', line: mix(th.gold, '#8E847A', 0.45),
-    pill: '#F2EDE2', pillInk: '#5B5148', deadFill: '#FAF7F0', band: 'rgba(31,26,22,0.04)', bandText: '#8E847A',
-    branch: SCREEN.light.branch, neutral: '#4E5A52', accent: mix(th.gold, '#1F1A16', 0.7), thread: '#A3271F', gold: mix(th.gold, '#1F1A16', 0.75)
-  };
-}
 
 /**
  * opts: { theme, root, dKids, photos, inside (names inside the shapes) }; env: { measure, photoIds, today }
@@ -147,51 +137,34 @@ export function buildBook(ix, s, opts, env) {
   /* ---------- the tree and its branches ---------- */
   const treeStart = pages.length;
   const branchPages = [];
-  const placeTree = (L, title, sub) => {
-    const b = L.bounds, cw = b.x1 - b.x0, ch = b.y1 - b.y0;
-    const land = cw / ch > 1.05;
-    const [pw, ph] = land ? [H, W] : [W, H];
-    const box = { x: M.side, y: M.top + 58, w: pw - 2 * M.side, h: ph - M.top - 58 - M.bottom - 6 };
-    const scale = Math.min(box.w / cw, box.h / ch, 1.3);
-    return { pw, ph, scale, box, nameSize: L.M.nameSize * scale, place: () => {
+  // as the atlas lays them out: the top of the tree on the first page, each branch that would make a
+  // page's names too small on a page of its own (brothers' small branches together), and where a branch
+  // goes on, «انظر ص» with its page in the book
+  const pageBox = (pw, ph) => ({ x: M.side, y: M.top + 58, w: pw - 2 * M.side, h: ph - M.top - 58 - M.bottom - 6 });
+  const plan = atlasPlan(ix, s, { root, amode: 'v', paper: 'A4', size: opts.size || 'm', women: true, dKids: !!opts.dKids, dates: true, inside: !!opts.inside, theme: opts.theme, first: false, pageBox });
+  if (plan) {
+    const tags = new Map();
+    for (const [id, k] of plan.pageOf) tags.set(id, pageTag(treeStart + k + 1));
+    const o = { info, measure, photos: opts.photos !== false, dates: true, spouses: false, colors: true, bands: false, num: n => num(n), tags };
+    const lineOf = (id, n) => lineageText(ix.paternalLine(id, n).map(x => ix.P[x].n || '؟'), { gender: ix.P[id].g, style: 'bin', lang: lang.value });
+    plan.pages.forEach(pg => {
+      const { W: pw, H: ph, box, scale } = pg.fit;
       const sc = innerPage(pw, ph);
+      const title = pg.first ? (ar ? 'الشجرة' : 'The tree')
+        : pg.ids.length > 1 && pg.father ? (ar ? 'فروع أبناء ' + lineOf(pg.father, 3) : 'The branches of ' + lineOf(pg.father, 3) + "'s sons")
+          : (ar ? 'فرع ' + lineOf(pg.id, 3) : lineOf(pg.id, 3) + "'s branch");
+      const sub = pg.first ? (plan.pages.length > 1 ? (ar ? 'وفروعها الكبيرة في الصفحات التالية' : 'Its big branches follow on the next pages') : titles.sub)
+        : (ar ? `تكملةً للصفحة ${dig(treeStart + pg.from + 1)}` : `Continued from page ${treeStart + pg.from + 1}`);
       const tt = fitText(measure, title, th.fonts.title, 22, pw - 2 * M.side);
       sc.push({ t: 'text', x: pw / 2, y: M.top + 18, s: tt.s, font: th.fonts.title, size: tt.size, fill: th.ink, w: tt.w });
-      if (sub) { const st = fitText(measure, sub, th.fonts.text, 10, pw - 2 * M.side); sc.push({ t: 'text', x: pw / 2, y: M.top + 38, s: st.s, font: th.fonts.text, size: st.size, fill: th.ink3, w: st.w }); }
-      const o = { info, measure, photos: opts.photos !== false, dates: true, spouses: false, colors: true, bands: false, num: n => num(n) };
-      const chart = drawDescendants(L, th, o);
+      const st = fitText(measure, sub, th.fonts.text, 10, pw - 2 * M.side);
+      sc.push({ t: 'text', x: pw / 2, y: M.top + 38, s: st.s, font: th.fonts.text, size: st.size, fill: th.ink3, w: st.w });
+      const L = pg.L, b = L.bounds, cw = b.x1 - b.x0, ch = b.y1 - b.y0;
+      const chart = drawDescendants(L, th, { ...o, trunkLabel: pg.ids.length > 1 && pg.father ? ix.P[pg.father].n : '' });
       const tx = box.x + (box.w - cw * scale) / 2 - b.x0 * scale, ty = box.y + (box.h - ch * scale) / 2 - b.y0 * scale;
       sc.push({ t: 'g', tf: [scale, tx, ty], items: chart.items });
-      return pages.length - 1;
-    } };
-  };
-  const lay = (id, maxGen = 0) => layoutDescendants(ix, id, { mode: 'v', dKids: !!opts.dKids, dates: true, rtl, metrics: { w: 104 }, maxGen, inside: !!opts.inside });
-  const MIN_NAME = 6.2;
-  // the whole tree on one page when it is readable, else its top
-  {
-    const L = lay(root);
-    const fit = placeTree(L, ar ? 'الشجرة' : 'The tree', titles.sub);
-    if (fit.nameSize >= MIN_NAME) { fit.place(); }
-    else {
-      let g = 4, f2;
-      do { f2 = placeTree(lay(root, g), ar ? 'الشجرة: الأجيال الأولى' : 'The tree: first generations', ar ? 'وتتبعها الفروع في الصفحات التالية' : 'Each branch follows on its own page'); g--; } while (f2.nameSize < MIN_NAME && g > 2);
-      f2.place();
-    }
-    // branches: each son's family; too big → his family first, then each of his sons'
-    const branch = (id, depth) => {
-      const kids = ix.children(id).filter(c => ix.children(c).length);
-      if (!ix.children(id).length) return;
-      const L = lay(id);
-      const title = (ar ? 'فرع ' : '') + lineageText(ix.paternalLine(id, 3).map(x => ix.P[x].n || '؟'), { gender: ix.P[id].g, style: 'bin', lang: lang.value }) + (ar ? '' : "'s branch");
-      const fit = placeTree(L, title, '');
-      if (fit.nameSize >= MIN_NAME || depth > 6) { branchPages.push({ id, page: fit.place() }); return; }
-      let g = 3, f2;
-      do { f2 = placeTree(lay(id, g), title, ''); g--; } while (f2.nameSize < MIN_NAME && g > 1);
-      branchPages.push({ id, page: f2.place() });
-      for (const c of kids) if (ix.P[c].g !== 'f' || opts.dKids) branch(c, depth + 1);
-    };
-    const tops = ix.children(root).filter(c => ix.children(c).length && (ix.P[c].g !== 'f' || opts.dKids));
-    if (L.nodes.length > 12) for (const c of tops) branch(c, 1);
+      if (!pg.first) branchPages.push({ id: pg.id, ids: pg.ids, father: pg.father, page: pages.length - 1 });
+    });
   }
 
   /* ---------- everyone's details ---------- */
@@ -295,7 +268,8 @@ export function buildBook(ix, s, opts, env) {
     wr.items = c.items; wr.y = c.y;
     wr.text(ar ? 'محتويات الكتاب' : 'Contents', th.fonts.title, 17, th.ink, { gap: 0.8 });
     const rows = [[ar ? 'الشجرة' : 'The tree', treeStart]];
-    for (const b of branchPages.slice(0, 18)) rows.push([(ar ? 'فرع ' : '') + lineageText(ix.paternalLine(b.id, 2).map(x => ix.P[x].n || '؟'), { gender: ix.P[b.id].g, style: 'bin', lang: lang.value }), b.page]);
+    const lin2 = id => lineageText(ix.paternalLine(id, 2).map(x => ix.P[x].n || '؟'), { gender: ix.P[id].g, style: 'bin', lang: lang.value });
+    for (const b of branchPages.slice(0, 18)) rows.push([b.ids.length > 1 && b.father ? (ar ? 'فروع أبناء ' : "The branches of the sons of ") + lin2(b.father) : (ar ? 'فرع ' : '') + lin2(b.id), b.page]);
     if (branchPages.length > 18) rows.push([ar ? 'وبقية الفروع' : 'More branches', branchPages[18].page]);
     rows.push([ar ? 'سِيَر الأفراد' : 'Everyone in the family', detailStart]);
     rows.push([ar ? 'فهرس الأسماء' : 'Index of names', indexStart]);

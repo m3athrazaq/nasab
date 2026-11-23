@@ -99,3 +99,15 @@ export function mix(a, b, t) {
   return '#' + x.map((v, i) => Math.round(v * t + y[i] * (1 - t)).toString(16).padStart(2, '0')).join('');
 }
 export const branchColor = (th, branch, colors = true) => (!colors ? th.neutral : branch >= 0 ? th.branch[branch % th.branch.length] : th.accent);
+
+const lum = hex => { const [r, g, b] = hexToRgb(hex); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+/** a look for pages printed many at a time: light (a whole book on dark paper would drink ink), with
+ * the look's fonts and ornaments; a light look stays as it is */
+export function innerTheme(th) {
+  if (lum(th.bg) > 0.5) return th;
+  return {
+    ...th, bg: '#FAF7F0', paper: '#FAF7F0', ink: '#1F1A16', ink2: '#5B5148', ink3: '#8E847A', line: mix(th.gold, '#8E847A', 0.45),
+    pill: '#F2EDE2', pillInk: '#5B5148', deadFill: '#FAF7F0', band: 'rgba(31,26,22,0.04)', bandText: '#8E847A',
+    branch: SCREEN.light.branch, neutral: '#4E5A52', accent: mix(th.gold, '#1F1A16', 0.7), thread: '#A3271F', gold: mix(th.gold, '#1F1A16', 0.75)
+  };
+}

@@ -80,6 +80,25 @@ export function descendantData(ix, root, { dKids = false, women = true, collapse
   return { id: '', virtual: true, depth: skip - 1, branch: -1, union: '', children: tops };
 }
 
+/** brothers and sisters with no children of their own (and none on another page), side by side in
+ * birth order, become one list: { stack: [them], children: [] } (a single one stays a card) */
+function stackRuns(d) {
+  if (!d.children || !d.children.length) return d;
+  const out = [];
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) out.push({ ...run[0], stack: run, children: [], hidden: 0 });
+    else out.push(...run);
+    run = [];
+  };
+  for (const c of d.children) {
+    if (!c.children.length && !c.hidden) run.push(c);
+    else { flush(); out.push(stackRuns(c)); }
+  }
+  flush();
+  return { ...d, children: out };
+}
+
 /** one person's card: what is shown decides its height (names, years, spouse line) */
 function nodeBox(mode, M, opts) {
   if (mode === 'v' && opts.inside) {
@@ -100,15 +119,23 @@ export function layoutDescendants(ix, root, opts = {}) {
   const mode = opts.mode || 'v';
   const inside = !!opts.inside && mode !== 'f';
   const M = { ...METRICS[inside && METRICS[mode + 'i'] ? mode + 'i' : mode], ...(opts.metrics || {}) };
-  const data = descendantData(ix, root, opts);
-  if (!data) return null;
+  // a page of an atlas brings its own part of the tree (cut from the whole, so faint and repeated
+  // people stay as they are in the whole tree)
+  const whole = opts.data || descendantData(ix, root, opts);
+  if (!whole) return null;
+  // top-down, compact: brothers and sisters with no children of their own listed one under the other
+  const stacking = mode === 'v' && !!opts.stack;
+  const data = stacking ? stackRuns(whole) : whole;
   const h = hierarchy(data, d => d.children);
   const nodes = [], links = [];
   if (mode === 'v' || mode === 'h') {
     const box = nodeBox(mode, M, opts);
     const breadth = mode === 'v' ? M.w : M.h;
+    // a list of brothers and sisters: its rows and its width
+    const rowH = M.nameSize * 1.62, ws = M.ws || 150;
+    const wid = n => (n.data.stack ? ws : breadth);
     // the families of a generation side by side (under an invisible top) stand a little further apart
-    const t = tree().nodeSize([1, 1]).separation((a, b) => breadth + (a.parent === b.parent ? (a.parent && a.parent.data.virtual ? M.gapCousin * 1.6 : M.gapSib) : M.gapCousin));
+    const t = tree().nodeSize([1, 1]).separation((a, b) => (wid(a) + wid(b)) / 2 + (a.parent === b.parent ? (a.parent && a.parent.data.virtual ? M.gapCousin * 1.6 : M.gapSib) : M.gapCousin));
     t(h);
     const rtl = opts.rtl !== false;
     h.each(n => {
@@ -119,9 +146,21 @@ export function layoutDescendants(ix, root, opts = {}) {
       n.px = x; n.py = y;
     });
     let k = 0;
+    const keyOf = d => (d.dup ? d.id + '#' + (k++) : d.id);
+    const listTop = n => n.py - box.top; // a list starts where a seal's top would be
     h.each(n => {
       const d = n.data;
-      const key = d.virtual ? '' : d.dup ? d.id + '#' + (k++) : d.id;
+      if (d.stack) {
+        // each one a row: a small mark on a rail at the list's start edge, the name and years beside it
+        const x0 = n.px - ws / 2, x1 = n.px + ws / 2, rail = rtl ? x1 - 4 : x0 + 4;
+        d.stack.forEach((m, i) => {
+          m.key = keyOf(m);
+          nodes.push({ key: m.key, id: m.id, x: n.px, y: listTop(n) + rowH * (i + 0.5), depth: n.depth, branch: m.branch, union: m.union, dup: !!m.dup, faint: !!m.faint, hidden: 0, hiddenKids: m.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null, row: { x0, x1, rail, h: rowH, rtl } });
+        });
+        d.key = d.stack[0].key;
+        return;
+      }
+      const key = d.virtual ? '' : keyOf(d);
       d.key = key;
       if (d.virtual) return;
       nodes.push({ key, id: d.id, x: n.px, y: n.py, depth: n.depth, branch: d.branch, union: d.union, dup: !!d.dup, faint: !!d.faint, hidden: d.hidden || 0, hiddenKids: d.hiddenKids || 0, parent: n.parent && !n.parent.data.virtual ? n.parent.data.key : null });
@@ -131,6 +170,17 @@ export function layoutDescendants(ix, root, opts = {}) {
       if (!n.parent || n.parent.data.virtual) return;
       const a = n.parent, b = n;
       let d;
+      if (b.data.stack) {
+        // down to the top of the list, along its rail, a tick to each row
+        const len = b.data.stack.length, top = listTop(b);
+        const rail = rtl ? b.px + ws / 2 - 4 : b.px - ws / 2 + 4;
+        const x1 = a.px, y1 = a.py + box.bottom, y2 = top;
+        const ym = y1 + Math.max(10, (y2 - y1) * 0.45);
+        d = elbowV(x1, y1, rail, y2, ym, r) + `V${f(top + rowH * (len - 0.5))}`;
+        for (let i = 0; i < len; i++) d += `M${f(rail)} ${f(top + rowH * (i + 0.5))}h${f(rtl ? -6 : 6)}`;
+        links.push({ from: a.data.key, to: b.data.key, d, depth: b.depth, branch: b.data.branch, union: b.data.union, faint: b.data.stack.every(m => m.faint) });
+        return;
+      }
       if (mode === 'v') {
         const x1 = a.px, y1 = a.py + box.bottom, x2 = b.px, y2 = b.py - box.top - 2;
         const ym = y1 + Math.max(10, (y2 - y1) * 0.45);
@@ -157,14 +207,36 @@ export function layoutDescendants(ix, root, opts = {}) {
         }
       });
     }
-    const b = bounds(nodes, mode === 'v' ? { l: M.w / 2 + 4, r: M.w / 2 + 4, t: box.top + 4, b: box.bottom + 18 } : { l: M.w / 2 + 6, r: M.w / 2 + 6, t: M.h / 2 + 4, b: M.h / 2 + 14 });
+    const cards = nodes.filter(n => !n.row);
+    const b = bounds(cards, mode === 'v' ? { l: M.w / 2 + 4, r: M.w / 2 + 4, t: box.top + 4, b: box.bottom + 18 } : { l: M.w / 2 + 6, r: M.w / 2 + 6, t: M.h / 2 + 4, b: M.h / 2 + 14 });
+    for (const n of nodes) {
+      if (!n.row) continue;
+      if (!cards.length) { b.x0 = Infinity; b.x1 = -Infinity; b.y0 = Infinity; b.y1 = -Infinity; cards.push(n); }
+      b.x0 = Math.min(b.x0, n.row.x0 - 4); b.x1 = Math.max(b.x1, n.row.x1 + 4);
+      b.y0 = Math.min(b.y0, n.y - rowH / 2 - 4); b.y1 = Math.max(b.y1, n.y + rowH / 2 + 6);
+    }
     return { mode, M, box, nodes, links, groups, bounds: b, rtl, inside, ...generationInfo(data) };
   }
   if (mode === 'r') {
     const span = opts.span || 200; // degrees of the canopy
     const t = tree().size([span, 1]).separation((a, b) => (a.parent === b.parent ? 1 : 1.6) / Math.max(1, a.depth));
     t(h);
-    const radius = d => d * M.ring;
+    // each ring at least a ring further out than the one inside it, and far enough out that neighbours
+    // on it never touch (a big family on a narrow canopy would pile its seals and names on each other)
+    const minGap = 2 * M.R + 8;
+    const atDepth = [];
+    h.each(n => { if (n.depth) (atDepth[n.depth] = atDepth[n.depth] || []).push(n.x); });
+    const radii = [0];
+    for (let d = 1; d < atDepth.length; d++) {
+      const xs = (atDepth[d] || []).sort((a, b) => a - b);
+      let need = 0;
+      for (let i = 1; i < xs.length; i++) {
+        const gap = (xs[i] - xs[i - 1]) * Math.PI / 180;
+        if (gap > 1e-9) need = Math.max(need, minGap / gap);
+      }
+      radii[d] = Math.max(radii[d - 1] + M.ring, need);
+    }
+    const radius = d => radii[d] || 0;
     h.each(n => {
       // angle 0 = left end of the canopy, span = right end; drawn above the trunk
       const deg = 180 + (180 - span) / 2 + n.x; // from 180+… (left) to 360-… (right)
@@ -200,7 +272,8 @@ export function layoutDescendants(ix, root, opts = {}) {
     let x0 = -170, x1 = 170, y0 = -M.R * 2.2, y1 = M.trunk + 30 + 40;
     const label = M.ring - 2 * M.R - 4;
     for (const n of nodes) {
-      const ext = n.depth === 0 ? M.R * 2 : M.R + 6 + label;
+      // (a branch that goes on another page carries a tag with the page number after its name)
+      const ext = n.depth === 0 ? M.R * 2 : M.R + 6 + label + (n.hidden ? opts.tagExt || 0 : 0);
       const ux = Math.cos(n.ang * Math.PI / 180), uy = Math.sin(n.ang * Math.PI / 180);
       for (const [px, py] of [[n.x - M.R, n.y - M.R], [n.x + M.R, n.y + M.R], [n.x + ux * ext, n.y + uy * ext]]) {
         x0 = Math.min(x0, px - 8); x1 = Math.max(x1, px + 8); y0 = Math.min(y0, py - 8); y1 = Math.max(y1, py + 8);

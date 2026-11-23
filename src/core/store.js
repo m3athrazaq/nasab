@@ -178,6 +178,9 @@ export function sPoster(o) {
   if (typeof o.by === 'string') out.by = str(o.by, 80);
   if (o.gpaper != null) out.gpaper = oneOf(o.gpaper, ['A4', 'A3', 'A2', 'A1', 'A0', 'auto'], 'auto');
   if (o.gdir != null) out.gdir = oneOf(o.gdir, ['ltr', 'rtl'], 'ltr');
+  if (o.ppaper != null) out.ppaper = oneOf(o.ppaper, ['A4', 'A3', 'A2', 'A1', 'A0', 'auto'], 'A4');
+  if (o.amode != null) out.amode = oneOf(o.amode, ['v', 'r', 'h'], 'v');
+  if (o.size != null) out.size = oneOf(o.size, ['s', 'm', 'l'], 'm');
   for (const k of ['photos', 'dates', 'spouses', 'dKids', 'women', 'colors', 'hideLiving', 'basmala', 'frame', 'legend', 'stats', 'inside']) if (o[k] != null) out[k] = bool(o[k]);
   for (const k of ['gens']) if (o[k] != null) out[k] = int(o[k], 0, 30, 0);
   if (o.fromGen != null) out.fromGen = int(o.fromGen, 1, 30, 1);

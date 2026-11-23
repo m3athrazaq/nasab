@@ -69,7 +69,8 @@ export const FAINT = 0.36, FAINT_LINK = 0.3;
 /**
  * o: { info(id) → { name, initial, years, dead, g, photo, spouses }, measure(font, text, size),
  *      photos, dates, spouses, colors, bands, genLabel(n), me, selected, thread: Set of node keys,
- *      screen, motherLabel(unionId) }
+ *      screen, motherLabel(unionId), tags: Map id → label (a branch that goes on on another page:
+ *      the label, such as its page number, instead of the "+N" of a folded branch) }
  */
 export function drawDescendants(L, th, o) {
   const items = [];
@@ -146,14 +147,32 @@ export function drawDescendants(L, th, o) {
 
   /* people */
   const parents = new Set(L.nodes.map(n => n.parent).filter(Boolean));
+  const tagOf = n => (n.hidden && o.tags && o.tags.get(n.id)) || '';
+  const plus = n => '+' + (o.num ? o.num(n.hidden) : n.hidden);
   for (const n of L.nodes) {
     const inf = o.info(n.id);
     if (!inf) continue;
-    const col = branchColor(th, n.depth === 0 ? -1 : n.branch, o.colors);
+    // (the founder's branch is -1, his own colour; the top of an atlas page keeps its branch's colour)
+    const col = branchColor(th, n.branch, o.colors);
     const g = { t: 'g', key: n.key, id: n.id, dup: n.dup, items: [] };
     const ring = o.selected === n.id ? th.thread : o.me === n.id ? th.gold : '';
     const nameInk = n.dup ? th.ink3 : th.ink;
-    if (L.mode === 'v' && L.inside) {
+    if (n.row) {
+      // one of a list of brothers and sisters: a small mark on the list's rail (square for men, round
+      // for women, hollow once deceased), the name, then the years
+      const rw = n.row, dir = rw.rtl ? -1 : 1, m = Math.min(5.2, rw.h * 0.2);
+      const mx = rw.rail + dir * (6 + m + 1);
+      const fill = inf.dead ? th.deadFill : col, dash = n.dup ? [2, 1.6] : null;
+      if (inf.g === 'f') g.items.push({ t: 'circle', cx: mx, cy: n.y, r: m, fill, stroke: col, sw: 1.3, dash });
+      else g.items.push({ t: 'rect', x: mx - m, y: n.y - m, w: 2 * m, h: 2 * m, r: m * 0.3, fill, stroke: col, sw: 1.3, dash });
+      const start = mx + dir * (m + 5), room = Math.abs((rw.rtl ? rw.x0 : rw.x1) - start) - 2;
+      const yr = o.dates && inf.years ? fitText(measure, inf.years, th.fonts.years, M.yearSize, room * 0.42) : null;
+      const nm = fitText(measure, inf.name, th.fonts.name, M.nameSize, room - (yr ? yr.w + 6 : 0));
+      g.items.push({ t: 'text', x: start + dir * nm.w / 2, y: n.y + nm.size * 0.34, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w });
+      if (yr) g.items.push({ t: 'text', x: start + dir * (nm.w + 6 + yr.w / 2), y: n.y + yr.size * 0.34, s: yr.s, font: th.fonts.years, size: yr.size, fill: th.ink2, w: yr.w });
+      if (ring) g.items.push({ t: 'rect', x: rw.x0, y: n.y - rw.h / 2, w: rw.x1 - rw.x0, h: rw.h, r: 6, fill: 'none', stroke: ring, sw: 1.6 });
+      g.hit = { x: rw.x0, y: n.y - rw.h / 2, w: rw.x1 - rw.x0, h: rw.h };
+    } else if (L.mode === 'v' && L.inside) {
       // a card with the name (and the years) inside: square corners for men, round ends for women
       const ch = L.box.cardH, cw = M.w - 8, female = inf.g === 'f';
       const x0 = n.x - cw / 2, y0 = n.y - ch / 2, r = female ? ch / 2 : 8;
@@ -172,7 +191,7 @@ export function drawDescendants(L, th, o) {
         g.items.push({ t: 'text', x: n.x, y: n.y + ch / 2 + 13, s: sp.s, font: th.fonts.years, size: sp.size, fill: th.ink3, w: sp.w });
       }
       g.hit = { x: n.x - M.w / 2, y: y0 - 4, w: M.w, h: L.box.top + L.box.bottom + 8 };
-      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
+      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, tagOf(n) || plus(n), col);
     } else if (L.mode === 'v') {
       const R = n.depth === 0 ? M.R * 1.12 : M.R;
       seal(g.items, th, n.x, n.y, R, inf, col, { dup: n.dup, photos: o.photos && !n.faint, measure, ring });
@@ -190,7 +209,7 @@ export function drawDescendants(L, th, o) {
         g.items.push({ t: 'text', x: n.x, y, s: sp.s, font: th.fonts.years, size: sp.size, fill: th.ink3, w: sp.w });
       }
       g.hit = { x: n.x - M.w / 2, y: n.y - M.R - 6, w: M.w, h: M.R + L.box.bottom + 6 };
-      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
+      if (n.hidden) badge(g.items, th, measure, n.x, n.y + L.box.bottom + 4, tagOf(n) || plus(n), col);
     } else if (L.mode === 'h') {
       const w = M.w, h = M.h, x0 = n.x - w / 2, y0 = n.y - h / 2;
       const female = inf.g === 'f';
@@ -215,7 +234,11 @@ export function drawDescendants(L, th, o) {
         g.items.push({ t: 'text', x: cx, y: n.y + 13, s: yr.s, font: th.fonts.years, size: yr.size, fill: th.ink2, w: yr.w });
       }
       g.hit = { x: x0, y: y0, w, h };
-      if (n.hidden) badge(g.items, th, measure, L.rtl ? x0 - 14 : x0 + w + 14, n.y + 4, '+' + (o.num ? o.num(n.hidden) : n.hidden), col);
+      if (n.hidden) {
+        // beside the card, on the side its children would be
+        const label = tagOf(n) || plus(n), bw = badgeW(th, measure, label);
+        badge(g.items, th, measure, L.rtl ? x0 - 6 - bw / 2 : x0 + w + 6 + bw / 2, n.y + 4, label, col);
+      }
     } else if (L.inside) {
       // canopy, the names inside: the founder on the trunk, the others in small frames on the branches
       const female = inf.g === 'f', dash = n.dup ? [3, 2.5] : null, fill = shapeFill(th, inf, col);
@@ -240,7 +263,8 @@ export function drawDescendants(L, th, o) {
         frame(cx, cy, pw, ph, n.ang);
         g.items.push({ t: 'text', x: cx, y: cy + nm.size * 0.34, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w, rot: upright(n.ang), rx: cx, ry: cy });
         g.hit = { x: Math.min(n.x, n.x + c * pw) - ph / 2, y: Math.min(n.y, n.y + sn * pw) - ph / 2, w: Math.abs(c * pw) + ph, h: Math.abs(sn * pw) + ph };
-        if (n.hidden) badge(g.items, th, measure, n.x + c * (pw + 10), n.y + sn * (pw + 10), '+', col);
+        if (tagOf(n)) tagAlong(g.items, th, measure, n.x, n.y, n.ang, pw + 4, tagOf(n), col);
+        else if (n.hidden) badge(g.items, th, measure, n.x + c * (pw + 10), n.y + sn * (pw + 10), '+', col);
       }
     } else {
       // canopy
@@ -262,8 +286,10 @@ export function drawDescendants(L, th, o) {
         const off = M.R + 5 + nm.w / 2, c = Math.cos(rad(n.ang)), s = Math.sin(rad(n.ang));
         g.items.push({ t: 'text', x: n.x + c * off, y: n.y + s * off + nm.size * 0.33, s: nm.s, font: th.fonts.name, size: nm.size, fill: nameInk, w: nm.w, rot: upright(n.ang), rx: n.x + c * off, ry: n.y + s * off });
         g.hit = { x: n.x - R - 4, y: n.y - R - 4, w: 2 * R + 8, h: 2 * R + 8 };
+        // a branch that goes on on another page: its page after the name, along the branch
+        if (tagOf(n)) tagAlong(g.items, th, measure, n.x, n.y, n.ang, M.R + 5 + nm.w + 5, tagOf(n), col);
       }
-      if (n.hidden) badge(g.items, th, measure, n.x + Math.cos(rad(n.ang)) * (M.R + 14), n.y + Math.sin(rad(n.ang)) * (M.R + 14), '+', col);
+      if (n.hidden && !(tagOf(n) && !root && !parents.has(n.key))) badge(g.items, th, measure, n.x + Math.cos(rad(n.ang)) * (M.R + 14), n.y + Math.sin(rad(n.ang)) * (M.R + 14), tagOf(n) || '+', col);
     }
     // a daughter's child (shown under the mother): like a watermark, unless picked
     if (n.faint && o.selected !== n.id) for (const it of g.items) it.op = (it.op == null ? 1 : it.op) * FAINT;
@@ -273,10 +299,19 @@ export function drawDescendants(L, th, o) {
   if (L.mode === 'r' && L.virtual && o.trunkLabel) items.push(...trunkPlaque(o.trunkLabel, 0));
   return { items, bounds: b };
 }
+const badgeW = (th, measure, label) => Math.max(18, measure(th.fonts.years, label, 10) + 10);
 function badge(items, th, measure, x, y, label, col) {
-  const size = 10, w = Math.max(18, measure(th.fonts.years, label, size) + 10);
+  const size = 10, w = badgeW(th, measure, label);
   items.push({ t: 'rect', x: x - w / 2, y: y - 8, w, h: 16, r: 8, fill: col, stroke: 'none' });
   items.push({ t: 'text', x, y: y + 3.6, s: label, font: th.fonts.years, size, fill: th.paper === 'transparent' ? '#fff' : th.paper, w: w - 10 });
+}
+/** a tag turned along a branch of the canopy, starting off units out from (x, y) */
+function tagAlong(items, th, measure, x, y, ang, off, label, col) {
+  const size = 10, w = badgeW(th, measure, label) + 2, h = 16;
+  const c = Math.cos(rad(ang)), s = Math.sin(rad(ang));
+  const cx = x + c * (off + w / 2), cy = y + s * (off + w / 2);
+  items.push({ t: 'path', d: boxPath(cx, cy, w, h, h / 2, ang), fill: col, stroke: 'none' });
+  items.push({ t: 'text', x: cx, y: cy + size * 0.34, s: label, font: th.fonts.years, size, fill: th.paper === 'transparent' ? '#fff' : th.paper, w: w - 12, rot: upright(ang), rx: cx, ry: cy });
 }
 
 /** the ancestors' fan */

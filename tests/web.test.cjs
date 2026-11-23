@@ -4,7 +4,7 @@
 // Prints one PASS/FAIL line per check, and "PASS no JS errors" when no page had a script error.
 // Covers: first start from a typed full name, saving across reloads, every screen in Arabic and English
 // and all four tree shapes, adding children and Undo, deleting from the tree, the women filter, the order
-// of children (the app's, and one father's from his card), names inside the shapes, the table of generations, a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
+// of children (the app's, and one father's from his card), names inside the shapes, the table of generations, a big family's print (the names too small on A4, the atlas and the outline offered and made in one tap), a second family (new, switch, delete, Undo), a poster from a chosen generation, every export (poster PDF/PNG/SVG, family book,
 // certificate, interactive HTML, GEDCOM, Excel backup), restore and GEDCOM import on a "new phone" and as a
 // new family,
 // broken and crafted files, the PIN lock, offline use, refusing to run inside a frame, and sync between a
@@ -330,6 +330,37 @@ let browser;
     await settle(page);
     const s = await stored(page);
     check(s.poster.layout === 'g' && s.poster.gpaper === 'A4' && s.poster.by === 'سالم', 'the table remembers its paper and who prepared it');
+    await ctx.close();
+  }
+
+  {
+    // a big family on A4: the names come out too small, and the app says what reads well instead
+    const { bigFamily } = await import('./big-family.mjs');
+    const st = sanitizeState({ ...bigFamily(), settings: { onboarded: true }, poster: { layout: 'v', paper: 'A4' } });
+    const { ctx, page } = await open({ state: st });
+    await page.goto(BASE + '#/poster');
+    await tabs(page);
+    await page.locator('.readable.bad .advice .row').first().waitFor({ timeout: 60000 });
+    const rows = await page.locator('.readable .advice .row').allTextContents();
+    check(rows.some(r => r.includes(AR.mode_a_long)) && rows.some(r => r.includes(AR.mode_o_long)), `names too small on A4: the app offers the atlas and the outline (${rows.length} ways)`);
+    await page.locator('.readable .advice .row', { hasText: AR.mode_a_long }).click();
+    await page.locator('.readable.good').waitFor({ timeout: 60000 });
+    const pressed = await page.locator('.seg button[aria-pressed="true"]', { hasText: AR.mode_a }).count();
+    const d = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'atlas.pdf');
+    const n = await pdfPages(d.buf);
+    check(pressed === 1 && n > 1, `…one tap: the atlas, every name easy to read, on ${n} pages`);
+    await page.locator('.seg button', { hasText: AR.mode_o }).click();
+    await page.waitForTimeout(3000);
+    const o = await download(page, () => page.locator('.btns .btn', { hasText: 'PDF' }).first().click(), 'outline.pdf');
+    const on = await pdfPages(o.buf);
+    const img = await download(page, () => page.locator('.btns .btn', { hasText: AR.image }).first().click(), 'outline.png');
+    const [w, h] = [img.buf.readUInt32BE(16), img.buf.readUInt32BE(20)];
+    check(on >= 2 && h > w * 2, `the outline: ${on} A4 pages, or one long image (${w}×${h})`);
+    await page.locator('.seg button', { hasText: AR.size_l }).click();
+    // (saved a moment after the last change, while the preview redraws)
+    let s;
+    for (let i = 0; i < 16; i++) { await page.waitForTimeout(500); s = await stored(page); if (s.poster.size === 'l') break; }
+    check(s.poster.layout === 'o' && s.poster.ppaper === 'A4' && s.poster.size === 'l', `the print remembers its shape, paper and name size (${JSON.stringify([s.poster.layout, s.poster.ppaper, s.poster.size])})`);
     await ctx.close();
   }
 

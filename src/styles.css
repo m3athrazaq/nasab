@@ -360,6 +360,20 @@ select.input.sm { min-height: 36px; width: auto; padding-block: 4px; padding-inl
 .swatch i { width: 62px; height: 62px; border-radius: 16px; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); position: relative; overflow: hidden; }
 .swatch[aria-pressed="true"] i { box-shadow: 0 0 0 3px var(--paper), 0 0 0 5px var(--madder); }
 .swatch[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+/* how big the names come out in print, and what reads well instead */
+.readable { margin-top: 10px; background: var(--sheet); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 10px 14px 12px; }
+.rd-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 14.5px; }
+.rd-val { font-weight: 600; }
+.rd-lvl { font-weight: 600; }
+.readable.good .rd-lvl { color: var(--palm); }
+.readable.small .rd-lvl { color: var(--saffron); }
+.readable.bad .rd-lvl { color: var(--madder); }
+.rd-pages { color: var(--ink-2); font-size: 13.5px; }
+.meter { position: relative; height: 6px; border-radius: 3px; margin: 9px 0 4px; background: linear-gradient(to right, var(--madder) 0 50%, var(--saffron) 50% 66.6%, var(--palm) 66.6% 100%); }
+[dir="rtl"] .meter { background: linear-gradient(to left, var(--madder) 0 50%, var(--saffron) 50% 66.6%, var(--palm) 66.6% 100%); }
+.meter i { position: absolute; top: -4px; width: 4px; height: 14px; margin-inline-start: -2px; border-radius: 2px; background: var(--ink); box-shadow: 0 0 0 2px var(--sheet); }
+.readable .advice { margin-top: 8px; box-shadow: none; border: 1px solid var(--rule); }
+.rd-busy svg { vertical-align: -2px; margin-inline-end: 6px; }
 .warn { background: var(--saffron-soft); color: var(--ink); border-radius: 12px; padding: 10px 14px; font-size: 14px; margin-top: 10px; }
 
 /* onboarding */

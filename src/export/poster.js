@@ -32,54 +32,40 @@ export function fanTitles(ix, id) {
 }
 
 /**
- * opts: { mode: 'v'|'h'|'r'|'f', theme, paper: 'A4'…'A0'|'auto', orient: 'auto'|'portrait'|'landscape',
- *         root, fromGen (1 = from root), title, head, sub, photos, dates, spouses, dKids, women, colors,
- *         hideLiving, legend, gens (fan) }
- * env:  { measure(font, text, size), photoIds: Set (photos that will be drawn), today: Date }
- * → { W, H, scene, scale, nameSize, warn }
+ * the poster's chart before it is drawn: its layout and its size in chart units (also what the
+ * readability check uses to say how big the names come out on each paper, without drawing them)
  */
-export function buildPoster(ix, s, opts, env) {
-  const th = posterTheme(opts.theme);
+function posterChart(ix, s, opts) {
   const mode = opts.mode || 'v';
   const root = opts.root && ix.P[opts.root] ? opts.root : (s.root && ix.P[s.root] ? s.root : ix.defaultRoot(s.me));
   if (!root) return null;
-  const women = opts.women !== false;
-  const info = makeInfo(ix, s, { hideLiving: opts.hideLiving, photoIds: env.photoIds });
   const rtl = lang.value === 'ar';
-  const measure = env.measure;
+  const women = opts.women !== false;
   const fromGen = mode === 'f' ? 1 : Math.max(1, opts.fromGen || 1);
-  const fam = ix.familyOf(root);
-  const o = {
-    info, measure, photos: opts.photos !== false, dates: opts.dates !== false, spouses: !!opts.spouses && women, colors: opts.colors !== false,
-    trunkLabel: fam ? familyTitle(fam) : ix.P[root].n,
-    bands: false, num: n => num(n),
-    motherLabel: u => { const w = ix.U[u] && ix.U[u].w; return w && ix.P[w] ? (rtl ? 'من ' : 'by ') + ix.P[w].n : ''; }
-  };
-  let L, chart;
   const person = opts.person && ix.P[opts.person] ? opts.person : (s.me && ix.P[s.me] ? s.me : root);
+  let L;
   if (mode === 'f') {
     // as many rings as there are known ancestors (2 to 7)
     const known = Math.max(0, ...ix.ancestors(person, 8).values());
     L = layoutFan(ix, person, { gens: opts.gens || Math.min(7, Math.max(2, known)), rtl });
-    chart = drawFan(L, th, o);
   } else {
     // wider cards in print (names are not cut as often)
     const inside = !!opts.inside;
     const metrics = mode === 'v' ? { w: 104 } : mode === 'h' ? { w: inside ? 160 : 180 } : {};
-    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, women, fromGen, spouses: o.spouses, dates: o.dates, rtl, metrics, inside, collapsed: new Set() });
+    L = layoutDescendants(ix, root, { mode, dKids: !!opts.dKids, women, fromGen, spouses: !!opts.spouses && women, dates: opts.dates !== false, rtl, metrics, inside, collapsed: new Set() });
     if (!L.nodes.length) return null; // nobody in that generation
-    chart = drawDescendants(L, th, o);
   }
   const b = L.bounds;
-  const cw = b.x1 - b.x0, ch = b.y1 - b.y0;
+  return { mode, root, person, fromGen, women, rtl, L, b, cw: b.x1 - b.x0, ch: b.y1 - b.y0 };
+}
 
-  /* page size */
+/**
+ * the page around a chart: its size (the paper, turned to suit the chart, or the chart's own size for
+ * 'auto'), the frame, the title block and legend, and the box left for the chart
+ */
+export function posterPage(th, cw, ch, opts, { head, sub }) {
   let W, H;
   const landscape = opts.orient === 'landscape' || (opts.orient !== 'portrait' && cw / ch > 1.08);
-  const titles = mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, root, fromGen);
-  const head = opts.head != null ? opts.head : titles.head;
-  const title = opts.title || titles.title;
-  const sub = opts.sub != null ? opts.sub : titles.sub;
   if (opts.paper === 'auto' || !PAPERS[opts.paper]) {
     // chart at full size (names at their natural size), page around it
     let w = Math.max(cw + 200, 595), h = Math.max(ch + 360, 595);
@@ -98,11 +84,16 @@ export function buildPoster(ix, s, opts, env) {
   const u = Math.min(W, H) / 595; // 1 on A4's short side
   const fr = frameItems(th.frame, W, H, th);
   const inset = fr.inset;
-  const scene = [{ t: 'rect', x: 0, y: 0, w: W, h: H, fill: th.bg }];
-  scene.push(...fr.items);
-
-  /* title block */
   const tH = titleHeight(u, !!head, !!sub);
+  const top = inset + tH;
+  const lH = legendHeight(u, opts);
+  const box = { x: inset, y: top + 6 * u, w: W - 2 * inset, h: H - inset - lH - top - 10 * u };
+  const scale = Math.min(box.w / cw, box.h / ch, opts.paper === 'auto' || !PAPERS[opts.paper] ? 1 : 2.4);
+  return { W, H, u, fr, inset, tH, top, lH, box, scale };
+}
+
+/** the title block (the line above the title, the title, a divider, the line under it, the count) */
+export function drawTitles(scene, th, measure, W, inset, u, { head, title, sub, line }) {
   let y = inset + 4 * u;
   const cx = W / 2, maxW = W - 2 * inset;
   const ttl = th.fonts.title;
@@ -126,27 +117,72 @@ export function buildPoster(ix, s, opts, env) {
     const st = fitText(measure, sub, th.fonts.sub || th.fonts.text, ss, maxW * 0.9, 0.6);
     scene.push({ t: 'text', x: cx, y, s: st.s, font: th.fonts.sub || th.fonts.text, size: st.size, fill: th.ink2, w: st.w });
   }
-  {
-    // how many people and generations, and the date
-    const n = mode === 'f' ? L.slots.filter(x => x.id).length + 1 : L.nodes.filter(x => !x.dup).length;
-    const gens = mode === 'f' ? Math.max(1, ...L.slots.filter(x => x.id).map(x => x.g + 1)) : Math.max(0, ...L.nodes.map(x => x.depth)) - (L.firstRow || 0) + 1;
-    const now = env.today || new Date();
-    const today = makeD({ cal: 'g', y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() });
-    const line = countLine(n, gens, today, opts.by);
+  if (line) {
     const fs2 = 10 * u;
     y += fs2 + 7 * u;
     scene.push({ t: 'text', x: cx, y, s: line, font: th.fonts.text, size: fs2, fill: th.ink3, w: measure(th.fonts.text, line, fs2) });
   }
-  const top = inset + tH;
+  return y;
+}
+
+/** how big the names come out (points) for these options, without drawing: { nameSize, W, H } */
+export function posterFit(ix, s, opts) {
+  const th = posterTheme(opts.theme);
+  const C = posterChart(ix, s, opts);
+  if (!C) return null;
+  const titles = C.mode === 'f' ? fanTitles(ix, C.person) : defaultTitles(ix, C.root, C.fromGen);
+  const head = opts.head != null ? opts.head : titles.head;
+  const sub = opts.sub != null ? opts.sub : titles.sub;
+  const pg = posterPage(th, C.cw, C.ch, opts, { head, sub });
+  return { nameSize: (C.mode === 'f' ? 9 : C.L.M.nameSize || 12) * pg.scale, W: pg.W, H: pg.H, people: C.mode === 'f' ? 0 : C.L.nodes.length };
+}
+
+/**
+ * opts: { mode: 'v'|'h'|'r'|'f', theme, paper: 'A4'…'A0'|'auto', orient: 'auto'|'portrait'|'landscape',
+ *         root, fromGen (1 = from root), title, head, sub, photos, dates, spouses, dKids, women, colors,
+ *         hideLiving, legend, gens (fan) }
+ * env:  { measure(font, text, size), photoIds: Set (photos that will be drawn), today: Date }
+ * → { W, H, scene, scale, nameSize, warn }
+ */
+export function buildPoster(ix, s, opts, env) {
+  const th = posterTheme(opts.theme);
+  const C = posterChart(ix, s, opts);
+  if (!C) return null;
+  const { mode, root, person, fromGen, women, rtl, L } = C;
+  const info = makeInfo(ix, s, { hideLiving: opts.hideLiving, photoIds: env.photoIds });
+  const measure = env.measure;
+  const fam = ix.familyOf(root);
+  const o = {
+    info, measure, photos: opts.photos !== false, dates: opts.dates !== false, spouses: !!opts.spouses && women, colors: opts.colors !== false,
+    trunkLabel: fam ? familyTitle(fam) : ix.P[root].n,
+    bands: false, num: n => num(n),
+    motherLabel: u => { const w = ix.U[u] && ix.U[u].w; return w && ix.P[w] ? (rtl ? 'من ' : 'by ') + ix.P[w].n : ''; }
+  };
+  const chart = mode === 'f' ? drawFan(L, th, o) : drawDescendants(L, th, o);
+  const b = L.bounds;
+  const cw = C.cw, ch = C.ch;
+
+  /* page size, frame, titles */
+  const titles = mode === 'f' ? fanTitles(ix, person) : defaultTitles(ix, root, fromGen);
+  const head = opts.head != null ? opts.head : titles.head;
+  const title = opts.title || titles.title;
+  const sub = opts.sub != null ? opts.sub : titles.sub;
+  const pg = posterPage(th, cw, ch, opts, { head, sub });
+  const { W, H, u, fr, inset, lH, box, scale } = pg;
+  const scene = [{ t: 'rect', x: 0, y: 0, w: W, h: H, fill: th.bg }];
+  scene.push(...fr.items);
+  // how many people and generations, and the date
+  const n = mode === 'f' ? L.slots.filter(x => x.id).length + 1 : L.nodes.filter(x => !x.dup).length;
+  const gens = mode === 'f' ? Math.max(1, ...L.slots.filter(x => x.id).map(x => x.g + 1)) : Math.max(0, ...L.nodes.map(x => x.depth)) - (L.firstRow || 0) + 1;
+  const now = env.today || new Date();
+  const today = makeD({ cal: 'g', y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() });
+  drawTitles(scene, th, measure, W, inset, u, { head, title, sub, line: countLine(n, gens, today, opts.by) });
 
   /* legend */
-  const lH = legendHeight(u, opts);
   const legendY = H - inset - lH + 6 * u;
-  if (opts.legend !== false) scene.push(...legendItems(ix, L, th, opts, measure, W, legendY, u, root, mode));
+  if (opts.legend !== false) scene.push(...legendItems(ix, L, th, { ...opts, legendInset: inset + 8 * u }, measure, W, legendY, u, root, mode));
 
   /* the chart, scaled into what is left */
-  const box = { x: inset, y: top + 6 * u, w: W - 2 * inset, h: H - inset - lH - top - 10 * u };
-  const scale = Math.min(box.w / cw, box.h / ch, opts.paper === 'auto' ? 1 : 2.4);
   const tx = box.x + (box.w - cw * scale) / 2 - b.x0 * scale;
   const ty = box.y + (box.h - ch * scale) / 2 - b.y0 * scale;
   scene.push({ t: 'g', tf: [scale, tx, ty], items: chart.items });
@@ -161,12 +197,13 @@ export function countLine(n, gens, today, by = '') {
     ? `${count(n, 'person')} في ${count(gens, 'generation')} — حتى ${fmtDate(today, { alt: false })}`
     : `${count(n, 'person')} in ${count(gens, 'generation')} — as of ${fmtDate(today, { alt: false })}`) + prep;
 }
-function titleHeight(u, head, sub) { return (head ? 25 : 0) * u + 46 * u * 0.95 + 22 * u + (sub ? 17.5 : 0) * u + 17 * u + 16 * u; }
-function legendHeight(u, opts) { return opts.legend === false ? 8 * u : 40 * u; }
+export function titleHeight(u, head, sub) { return (head ? 25 : 0) * u + 46 * u * 0.95 + 22 * u + (sub ? 17.5 : 0) * u + 17 * u + 16 * u; }
+export function legendHeight(u, opts) { return opts.legend === false ? 8 * u : 40 * u; }
 
-function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
+export function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
   const items = [];
-  const fs = 9.5 * u, font = th.fonts.text;
+  let fs = 9.5 * u;
+  const font = th.fonts.text;
   const parts = [];
   const ar = lang.value === 'ar';
   const R = 6 * u;
@@ -193,9 +230,15 @@ function legendItems(ix, L, th, opts, measure, W, y, u, root, mode) {
     parts.push({ icon: [{ t: 'rect', x: -R, y: -R, w: 2 * R, h: 2 * R, r: 2 * u, fill: th.fanP[0], stroke: th.line, sw: 0.6 * u }], label: ar ? 'جهة الأب' : "father's side" });
     parts.push({ icon: [{ t: 'rect', x: -R, y: -R, w: 2 * R, h: 2 * R, r: 2 * u, fill: th.fanM[0], stroke: th.line, sw: 0.6 * u }], label: ar ? 'جهة الأم' : "mother's side" });
   }
-  // lay out right to left (Arabic) centred
-  const gap = 14 * u, ig = 5 * u;
+  // lay out right to left (Arabic) centred; on a narrow page the type gets smaller, then the last
+  // branches are left out, so the legend never runs past the frame
+  let gap = 14 * u, ig = 5 * u;
   const iw = p => (p.iw || 1) * R; // half the icon's width
+  const maxW = W - 2 * (opts.legendInset || 60 * u);
+  const sizeAll = k => parts.reduce((a, p) => a + 2 * iw(p) + ig + measure(font, p.label, fs * k), 0) + gap * k * (parts.length - 1);
+  let k = Math.max(0.78, Math.min(1, maxW / sizeAll(1)));
+  while (parts.length > 3 && sizeAll(k) > maxW) parts.pop();
+  if (k < 1) { fs *= k; gap *= k; }
   const widths = parts.map(p => 2 * iw(p) + ig + measure(font, p.label, fs));
   const total = widths.reduce((a, b) => a + b, 0) + gap * (parts.length - 1);
   let x = ar ? W / 2 + total / 2 : W / 2 - total / 2;

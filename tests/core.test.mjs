@@ -1,6 +1,8 @@
 // The app's logic without a browser: dates in both calendars, Arabic names, kinship, the tree's data
 // model and its repairs, editing and undo, GEDCOM and Excel round trips, and every print (poster in all
-// looks and shapes, the family book, the certificate) drawn to PDF and SVG; sync between devices through a
+// looks and shapes, the family book, the certificate) drawn to PDF and SVG; prints that read easily however
+// big the tree (the outline, the atlas of branches, a canopy that never piles names up, how big the names
+// come out without drawing them); sync between devices through a
 // private repository in memory (merging, deletions, conflicts, photos, broken files, the link code and its
 // QR code), the view link for relatives (what its copy holds, the encryption, share.json, the public
 // repository), the app link for relatives (the link, their names, their own key), and the tool Claude
@@ -543,6 +545,102 @@ await section('table of generations', async () => {
   const bw = buildTable(ix, demo, { paper: 'A4', colors: false }, env);
   check('in black and white: no colour but grey', !GEN_COLORS_USED(bw.scene));
   check('nothing to draw from an empty generation', buildTable(ix, demo, { paper: 'auto', fromGen: 9 }, env) === null);
+});
+
+/* ---------------- prints that read easily however big the tree ---------------- */
+const { bigFamily } = await import('./big-family.mjs');
+
+await section('prints that read easily: the outline, the atlas, the advice', async () => {
+  const pdfLib = require('pdf-lib');
+  const fontkit = require('@pdf-lib/fontkit');
+  const bidi = require('bidi-js')();
+  const F = { naskhB: 'NotoNaskhArabic-Bold', naskh: 'NotoNaskhArabic-Regular', ui: 'ReadexPro-Regular', uiB: 'ReadexPro-SemiBold', ruqaa: 'ArefRuqaa-Bold', amiri: 'Amiri-Regular', amiriB: 'Amiri-Bold', kufi: 'ReemKufi-Bold' };
+  const fonts = {};
+  for (const [k, f] of Object.entries(F)) fonts[k] = fs.readFileSync(path.join(ROOT, 'fonts/pdf', f + '.ttf'));
+  const engine = createTextEngine({ fontkit, bidi, fonts, dir: 'rtl' });
+  const env = { measure: engine.measure.bind(engine), photoIds: new Set(), today: new Date(2026, 10, 23) };
+  const { buildOutline } = await import('../src/export/outline.js');
+  const { buildAtlas, atlasPlan, NAME_SIZES } = await import('../src/export/atlas.js');
+  const { posterFit } = await import('../src/export/poster.js');
+  const finite = sc => !/NaN|Infinity/.test(JSON.stringify(sc));
+  const texts = pages => pages.flatMap(p => flat(p.scene)).filter(i => i.t === 'text');
+  const flat = items => items.flatMap(i => (i.t === 'g' ? flat(i.items) : [i]));
+  const big = sanitizeState(bigFamily());
+  const bix = buildIndex(big);
+  const N = Object.keys(big.people).length;
+  check('the invented big family', N === 485, N + ' people');
+
+  /* the outline */
+  const o4 = buildOutline(bix, big, { paper: 'A4', theme: 'sadu', size: 'm' }, env);
+  const nameItems = o4.pages.flatMap(p => p.scene).filter(i => i.t === 'text' && i.font === 'naskhB');
+  check('outline: every person on a line of his own, once', o4.lines === N && nameItems.length === N, `${o4.lines} lines, ${nameItems.length} names`);
+  check('outline: on several A4 pages, in columns, at the size chosen', o4.pages.length >= 3 && o4.pages.length <= 6 && o4.nameSize === NAME_SIZES.m && o4.pages.every(p => finite(p.scene) && Math.round(p.W) === 595), o4.pages.length + ' pages');
+  const p2 = JSON.stringify(o4.pages[1].scene);
+  check('outline: later pages are numbered, and a family going on shows its father faintly on top', p2.includes(`صفحة 2 من ${o4.pages.length}`) && /بن [^"]+بن/.test(p2));
+  const rootLine = nameItems.find(i => i.s.includes('الكبير'));
+  check('outline: in Arabic the founder heads the first column, on the right', rootLine && rootLine.x > o4.W / 2 && rootLine.size > NAME_SIZES.m);
+  const sizes = ['s', 'l'].map(z => buildOutline(bix, big, { paper: 'A4', size: z }, env));
+  check('outline: smaller names take fewer pages, larger ones more', sizes[0].pages.length <= o4.pages.length && sizes[1].pages.length >= o4.pages.length && sizes[1].nameSize === NAME_SIZES.l);
+  const long = buildOutline(bix, big, { paper: 'auto', single: true }, env);
+  check('outline: one long page for a phone', long.pages.length === 1 && long.H > long.W * 3, `${Math.round(long.W)}x${Math.round(long.H)}`);
+  const demoO = buildOutline(ix, demo, { paper: 'A4', women: false, fromGen: 2 }, env);
+  check('outline: without women, from the second generation', demoO && demoO.lines === [...generations(ix, demo.root, { women: false }).values()].filter(g => g >= 2).length);
+  const odoc = await pdfLib.PDFDocument.create();
+  for (const pg of o4.pages) sceneToPdf(pdfLib, odoc, odoc.addPage([pg.W, pg.H]), pg.scene, { engine });
+  eq('outline: its PDF opens with every page', (await pdfLib.PDFDocument.load(await odoc.save())).getPageCount(), o4.pages.length);
+
+  /* the canopy no longer piles seals on each other */
+  const R = layoutDescendants(bix, big.root, { mode: 'r', rtl: true });
+  let tight = Infinity;
+  const byDepth = new Map();
+  for (const n of R.nodes) if (n.depth) (byDepth.get(n.depth) || byDepth.set(n.depth, []).get(n.depth)).push(n);
+  for (const list of byDepth.values()) {
+    list.sort((a, b) => Math.atan2(a.y, a.x) - Math.atan2(b.y, b.x));
+    for (let i = 1; i < list.length; i++) tight = Math.min(tight, Math.hypot(list[i].x - list[i - 1].x, list[i].y - list[i - 1].y));
+  }
+  check('canopy: neighbours on a ring never touch', tight >= 2 * R.M.R + 6, tight.toFixed(1));
+
+  /* lists of brothers and sisters with no children (top-down, compact) */
+  const plain = layoutDescendants(bix, big.root, { mode: 'v', rtl: true, metrics: { w: 104 } });
+  const stack = layoutDescendants(bix, big.root, { mode: 'v', rtl: true, metrics: { w: 104, ws: 150 }, stack: true });
+  const rows = stack.nodes.filter(n => n.row);
+  check('top-down with lists: everyone is there, in rows under their fathers, and the tree is far narrower',
+    stack.nodes.length === plain.nodes.length && rows.length > N / 2 && (stack.bounds.x1 - stack.bounds.x0) < (plain.bounds.x1 - plain.bounds.x0) / 2,
+    `${Math.round(plain.bounds.x1 - plain.bounds.x0)} → ${Math.round(stack.bounds.x1 - stack.bounds.x0)} wide`);
+
+  /* the atlas */
+  for (const amode of ['v', 'r', 'h']) {
+    const plan = atlasPlan(bix, big, { amode, paper: 'A4', size: 'm', theme: 'sadu' });
+    // everyone once in full; a branch that goes on also stands on its father's page, as a tag
+    const seen = new Map();
+    for (const pg of plan.pages) for (const n of pg.L.nodes) if (!n.dup) seen.set(n.id, (seen.get(n.id) || 0) + (n.hidden ? 0 : 1));
+    const once = [...seen.values()].every(v => v === 1) && seen.size === N;
+    const tags = plan.pages.flatMap(pg => pg.L.nodes.filter(n => n.hidden)).every(n => plan.pageOf.has(n.id) && plan.pages[plan.pageOf.get(n.id)].ids.includes(n.id));
+    check(`atlas (${amode}): several pages, every name at least ${NAME_SIZES.m} pt, everyone once, each tag to its page`, plan.pages.length > 1 && plan.nameSize >= NAME_SIZES.m - 0.05 && once && tags, `${plan.pages.length} pages, smallest ${plan.nameSize.toFixed(2)} pt`);
+  }
+  const A = buildAtlas(bix, big, { amode: 'v', paper: 'A4', size: 'm', theme: 'palm', by: 'سالم' }, env);
+  const at = texts(A.pages);
+  const tagged = at.filter(i => /^انظر ص \d+$/.test(i.s));
+  check('atlas: «انظر ص» tags with page numbers, and branch pages say where they come from', tagged.length > 0 && tagged.every(i => +i.s.split(' ').pop() >= 2 && +i.s.split(' ').pop() <= A.pages.length) && JSON.stringify(A.pages[1].scene).includes('تكملةً للصفحة 1'));
+  check('atlas: the title block on the first page, light pages for a dark look', JSON.stringify(A.pages[0].scene).includes('إعداد: سالم') && A.pages.every(p => p.scene[0].fill === '#FAF7F0' && finite(p.scene)));
+  const adoc = await pdfLib.PDFDocument.create();
+  for (const pg of A.pages) sceneToPdf(pdfLib, adoc, adoc.addPage([pg.W, pg.H]), pg.scene, { engine });
+  eq('atlas: its PDF opens with every page', (await pdfLib.PDFDocument.load(await adoc.save())).getPageCount(), A.pages.length);
+  const small = atlasPlan(ix, demo, { amode: 'v', paper: 'A3', size: 's' });
+  check('atlas: a family that fits on one page stays on one page', small.pages.length === 1);
+  const bigger = atlasPlan(bix, big, { amode: 'v', paper: 'A4', size: 'l' });
+  check('atlas: larger names take more pages', bigger.pages.length > atlasPlan(bix, big, { amode: 'v', paper: 'A4', size: 's' }).pages.length);
+
+  /* how big the names come out, without drawing */
+  for (const [mode, paper] of [['v', 'A4'], ['r', 'A3'], ['h', 'A2'], ['f', 'A4']]) {
+    const P = buildPoster(bix, big, { mode, paper, theme: 'sadu' }, env), f = posterFit(bix, big, { mode, paper, theme: 'sadu' });
+    check(`readability: the size measured without drawing is the size drawn (${mode}, ${paper})`, Math.abs(P.nameSize - f.nameSize) < 1e-6, `${P.nameSize} / ${f.nameSize}`);
+  }
+
+  /* the family book: its tree pages as the atlas lays them out */
+  const B = buildBook(bix, big, { theme: 'palm', photos: false }, env);
+  const bt = texts(B.pages).filter(i => /^انظر ص \d+$/.test(i.s));
+  check('book: the tree on pages with readable names, a tag to each branch\'s page', bt.length > 0 && B.pages.every(p => finite(p.scene)) && bt.every(i => +i.s.split(' ').pop() <= B.pages.length), B.pages.length + ' pages');
 });
 
 /* ---------------- sync between devices (a private GitHub repository, in memory) ---------------- */
